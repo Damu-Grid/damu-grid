@@ -31,6 +31,18 @@ Live demo: [link] · Test log-in: [user / password to be added]
 
 ## How to run it
 
+The forecasting and policy comparison in this branch can be reproduced now with Python 3.11+ and `uv`:
+
+```bash
+uv sync
+uv run pytest tests/forecasting tests/test_simulation.py
+uv run ruff check forecasting simulation tests
+uv run python -m forecasting.evaluate
+uv run python -m simulation.compare
+```
+
+The forecast command writes a row-level table, metrics JSON, and Markdown summary into ignored `data/processed/`. The split, models, upper-bound level, and simulation seeds are fixed in committed code. These commands use only the official synthetic CSVs.
+
 Step-by-step commands will be added once the packages exist. The intended shape:
 
 1. Copy `.env.example` to `.env` (no secrets in git).
