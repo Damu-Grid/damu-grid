@@ -17,6 +17,7 @@ const STATE_LABELS: Record<string, { label: string; tone: string }> = {
   quarantined: { label: "Quarantined", tone: "bg-expiry text-expiry-foreground" },
   blocked: { label: "Blocked", tone: "bg-expiry text-expiry-foreground" },
   cancelled: { label: "Cancelled", tone: "bg-muted text-muted-foreground" },
+  leaseexpired: { label: "Lease expired", tone: "bg-muted text-muted-foreground" },
   rejected: { label: "Rejected", tone: "bg-muted text-muted-foreground" },
 };
 

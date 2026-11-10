@@ -61,13 +61,12 @@ export function MoveActionDialog({
     if (!canSubmit) return;
     mutation.mutate(
       {
-        moveId: m.move_id,
+        move: m,
         action,
-        body: {
+        input: {
           event_id: eventId,
           actor_id: DEMO_ACTORS[role].actorId,
           role,
-          version: m.version,
           note: note.trim() || undefined,
           ...(action === "receive" && {
             cold_chain_evidence: evidence ?? "unknown",
@@ -80,7 +79,7 @@ export function MoveActionDialog({
           toast.success(
             action === "dispatch"
               ? "Dispatched. The receiving officer can now confirm arrival."
-              : `Receipt recorded. State: ${updated.state}.`,
+              : `Receipt recorded.${updated.state ? ` State: ${updated.state}.` : ""}`,
           );
           onOpenChange(false);
         },
