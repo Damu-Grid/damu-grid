@@ -1,0 +1,95 @@
+"use client";
+
+import { useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { PlaceholderBanner } from "@/components/placeholder-banner";
+import { SuggestionCard } from "@/components/suggestion-card";
+import { ApiError } from "@/lib/api/client";
+import { useSuggestions } from "@/lib/api/hooks";
+import { FIXTURE_SUGGESTIONS } from "@/lib/fixtures/suggestions";
+
+export default function QueuePage() {
+  const [modelOff, setModelOff] = useState(false);
+  const policy = modelOff ? "fallback" : "expiry_aware";
+  const { data, error, isPending, refetch, isFetching } = useSuggestions(policy);
+
+  const apiError = error instanceof ApiError ? error : null;
+  const estimatorDown = apiError?.status === 503;
+  // Placeholders only when the API itself is missing, never to cover a real error.
+  const showPlaceholders = !!apiError && (apiError.status === 0 || apiError.status === 404);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Review queue</h1>
+          <p className="text-muted-foreground">
+            Suggested red cell transfers. Nothing moves until you accept.
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Switch id="model-off" checked={modelOff} onCheckedChange={setModelOff} />
+            <Label htmlFor="model-off">Model off (fallback rule)</Label>
+          </div>
+          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? "Refreshing…" : "Refresh"}
+          </Button>
+        </div>
+      </div>
+
+      {estimatorDown && !modelOff && (
+        <Alert>
+          <AlertTitle>The demand estimator is offline</AlertTitle>
+          <AlertDescription className="flex flex-wrap items-center gap-3">
+            The fallback rule (nearest eligible site) still works with the same safety checks.
+            <Button size="sm" onClick={() => setModelOff(true)}>
+              Use the fallback rule
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {apiError && !showPlaceholders && !estimatorDown && (
+        <Alert variant="destructive">
+          <AlertTitle>Could not load suggestions</AlertTitle>
+          <AlertDescription>{apiError.message}</AlertDescription>
+        </Alert>
+      )}
+
+      {isPending && <p className="text-muted-foreground">Loading suggestions…</p>}
+
+      {showPlaceholders && (
+        <>
+          <PlaceholderBanner reason={apiError.message} />
+          <ul className="space-y-4">
+            {FIXTURE_SUGGESTIONS.filter((s) => s.fallback === modelOff).map((s) => (
+              <li key={s.suggestion_id}>
+                <SuggestionCard suggestion={s} placeholder />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {data && data.length === 0 && (
+        <p className="text-muted-foreground">
+          No eligible transfers for this snapshot. That can be a correct answer.
+        </p>
+      )}
+
+      {data && data.length > 0 && (
+        <ul className="space-y-4">
+          {data.map((s) => (
+            <li key={s.suggestion_id}>
+              <SuggestionCard suggestion={s} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
