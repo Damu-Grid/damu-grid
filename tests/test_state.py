@@ -31,7 +31,7 @@ def card(unit_ids: list[str] | None = None) -> Suggestion:
     )
 
 
-def make_client(tmp_path, *, checker=lambda _suggestion: True, changer=None):
+def make_client(tmp_path, *, checker=lambda _suggestion, _connection: True, changer=None):
     app = create_app(
         database_path=tmp_path / "snapshot.sqlite",
         action_database_path=tmp_path / "actions.sqlite",
@@ -114,7 +114,7 @@ def test_wrong_role_stale_version_and_eligibility_are_rejected(tmp_path) -> None
             database_path=tmp_path / "other-snapshot.sqlite",
             action_database_path=tmp_path / "other-actions.sqlite",
             suggestion_provider=lambda _policy: [card()],
-            eligibility_check=lambda _suggestion: False,
+            eligibility_check=lambda _suggestion, _connection: False,
         )
     )
     ineligible_client.get("/suggestions")
@@ -128,7 +128,12 @@ def test_wrong_role_stale_version_and_eligibility_are_rejected(tmp_path) -> None
 
 
 def test_change_after_reserve_cancels_reservation_and_rechecks_eligibility(tmp_path) -> None:
-    def change(original: Suggestion, unit_ids: list[str], destination: str) -> Suggestion:
+    def change(
+        original: Suggestion,
+        unit_ids: list[str],
+        destination: str,
+        _connection: sqlite3.Connection,
+    ) -> Suggestion:
         return original.model_copy(
             update={
                 "suggestion_id": "sug-state-changed",

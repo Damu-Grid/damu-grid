@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from backend.app.explanations import ExplanationService, default_explanation_service
+from backend.app.ranking import SQLiteSuggestionProvider
 from backend.app.schemas import (
     AlertSimulationRequest,
     AuditEvent,
@@ -27,7 +28,6 @@ from backend.app.services import (
     SuggestionProvider,
     SuggestionServiceUnavailable,
     read_snapshot_summary,
-    unavailable_suggestions,
 )
 from backend.app.state import ActionError, ActionStore, ChangeSuggestion, EligibilityCheck
 
@@ -70,7 +70,7 @@ def _api_error(exc: ActionError) -> JSONResponse:
 def create_app(
     *,
     database_path: Path | None = None,
-    suggestion_provider: SuggestionProvider = unavailable_suggestions,
+    suggestion_provider: SuggestionProvider | None = None,
     explanation_service: ExplanationService | None = None,
     action_database_path: Path | None = None,
     eligibility_check: EligibilityCheck | None = None,
@@ -96,6 +96,56 @@ def create_app(
         lease_minutes=int(os.getenv("RESERVATION_LEASE_MINUTES", "30")),
     )
     app.state.action_store = actions
+    active_provider = suggestion_provider
+    active_eligibility_check = eligibility_check
+    active_change_suggestion = change_suggestion
+    if active_provider is None:
+        def ranker() -> SQLiteSuggestionProvider:
+            return SQLiteSuggestionProvider(store_path or _database_path(), _configured_as_of())
+
+        def provide_suggestions(policy: str) -> list[Suggestion]:
+            return ranker().suggest(
+                policy,
+                actions.get_settings(),
+                actions.unavailable_unit_ids(),
+                actions.pending_inbound_units(),
+            )
+
+        def check_eligibility(
+            suggestion: Suggestion, connection: sqlite3.Connection
+        ) -> bool:
+            excluded = actions.unavailable_unit_ids(connection) - set(suggestion.unit_ids)
+            pending = actions.pending_inbound_units(suggestion.suggestion_id, connection)
+            return ranker().is_eligible(
+                suggestion,
+                actions.get_settings(connection),
+                excluded,
+                pending,
+            )
+
+        def change_recommendation(
+            original: Suggestion,
+            unit_ids: list[str],
+            destination: str,
+            connection: sqlite3.Connection,
+        ) -> Suggestion:
+            excluded = actions.unavailable_unit_ids(connection) - set(original.unit_ids)
+            pending = actions.pending_inbound_units(original.suggestion_id, connection)
+            try:
+                return ranker().change(
+                    original,
+                    unit_ids,
+                    destination,
+                    actions.get_settings(connection),
+                    excluded,
+                    pending,
+                )
+            except ValueError as exc:
+                raise ActionError(422, "eligibility_failed", str(exc)) from exc
+
+        active_provider = provide_suggestions
+        active_eligibility_check = active_eligibility_check or check_eligibility
+        active_change_suggestion = active_change_suggestion or change_recommendation
 
     @app.get("/health", tags=["system"])
     def health() -> dict[str, str]:
@@ -116,7 +166,7 @@ def create_app(
         policy: Annotated[Policy, Query()] = "expiry_aware",
     ) -> SuggestionListResponse:
         try:
-            items = actions.save_suggestions(suggestion_provider(policy))
+            items = actions.save_suggestions(active_provider(policy))
             items = explainer.apply_many(items, budget_seconds=8.0)
             is_fallback = policy == "fallback"
             items = [
@@ -140,7 +190,7 @@ def create_app(
                 suggestion_id=suggestion_id,
                 decision="accept",
                 body=body.model_dump(),
-                checker=eligibility_check,
+                checker=active_eligibility_check,
             )
         except ActionError as exc:
             return _api_error(exc)
@@ -152,7 +202,7 @@ def create_app(
                 suggestion_id=suggestion_id,
                 decision="reject",
                 body=body.model_dump(),
-                checker=eligibility_check,
+                checker=active_eligibility_check,
             )
         except ActionError as exc:
             return _api_error(exc)
@@ -170,8 +220,8 @@ def create_app(
             return actions.change(
                 suggestion_id=suggestion_id,
                 body=body.model_dump(),
-                checker=eligibility_check,
-                change_suggestion=change_suggestion,
+                checker=active_eligibility_check,
+                change_suggestion=active_change_suggestion,
             )
         except ActionError as exc:
             return _api_error(exc)
@@ -183,7 +233,7 @@ def create_app(
                 move_id=move_id,
                 action="dispatch",
                 body=body.model_dump(),
-                checker=eligibility_check,
+                checker=active_eligibility_check,
             )
         except ActionError as exc:
             return _api_error(exc)

@@ -34,7 +34,7 @@ def client_for(tmp_path):
         database_path=tmp_path / "snapshot.sqlite",
         action_database_path=tmp_path / "actions.sqlite",
         suggestion_provider=lambda _policy: [suggestion()],
-        eligibility_check=lambda _suggestion: True,
+        eligibility_check=lambda _suggestion, _connection: True,
     )
     client = TestClient(app)
     client.get("/suggestions")

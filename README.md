@@ -25,9 +25,9 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 
 ## What we built
 
-- What works now: the FastAPI health, snapshot, and suggestions endpoints; the human review workflow; the append-only audit trail; and the synthetic forecasting evaluation harness. When the processed store or ranking provider is unavailable, `/suggestions` reports that state instead of returning fake computed cards.
+- What works now: the FastAPI health, snapshot, and pipeline-backed suggestions endpoints; the human review workflow; the append-only audit trail; and the synthetic forecasting evaluation harness. When the processed pipeline snapshot is unavailable, `/suggestions` reports that state instead of returning fake computed cards.
   - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (488 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags checked against the official exposure flag (87 of 87 exposed red cells found), with its own automated tests.
-- What remains in progress: connecting the pipeline ranking provider and completing the demo video and slides. Tier 2 items are tracked in `docs/IMPLEMENTATION_PLAN.md`.
+- What remains in progress: completing the demo video and slides. Tier 2 items are tracked in `docs/IMPLEMENTATION_PLAN.md`.
 
 Demo video (3 minutes or less): [link to be added]
 Live demo: [link] · Test log-in: [user / password to be added]
@@ -57,12 +57,13 @@ Copy `.env.example` to `.env`, set `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, a
 
 ```bash
 uv sync
+uv run python -m pipeline build
 uv run uvicorn backend.app.main:app --reload --port 8000 --env-file .env
 ```
 
 Live explanations require `LLM_ENABLED=true`, `LLM_MODEL`, and `LLM_API_KEY` in `.env`. Set `LLM_PROVIDER` and `LLM_BASE_URL` when using a provider other than the OpenAI-compatible defaults. The checked-in `.env.example` leaves the LLM values blank. With explanations disabled or unconfigured, the API uses deterministic template text. Keep the key in `.env` or the shell environment; never commit it. Docker Compose can start the local services with `docker compose up --build`.
 
-The backend exposes `GET /health`, `GET /snapshot`, and `GET /suggestions` for frontend integration. It also provides suggestion accept/change/reject, move dispatch/receive/quarantine, audit, settings, sync-queue, and simulated-alert routes. See [`docs/API_SPEC.md`](docs/API_SPEC.md) for the request and response contracts. Until the pipeline suggestion provider is connected, `/suggestions` reports unavailable inputs instead of returning fake computed cards.
+The backend exposes `GET /health`, `GET /snapshot`, and `GET /suggestions` for frontend integration. The local provider reads the pipeline's as-of `dg_snapshot_units` and cold-chain flags, applies the pipeline eligibility and move checks, and estimates seven-day recipient gaps from known-group RBC requests in the preceding 28 days. It does not release units for transfusion. It also provides suggestion accept/change/reject, move dispatch/receive/quarantine, audit, settings, sync-queue, and simulated-alert routes. See [`docs/API_SPEC.md`](docs/API_SPEC.md) for the request and response contracts. `/suggestions` reports unavailable inputs instead of returning fake computed cards.
 
 ### Real integrations
 
@@ -138,7 +139,7 @@ Facilities in the starter data include `grid_reliability`, `connectivity` (2G / 
 
 ## AI tools we used
 
-OpenAI Codex assisted the in-window evaluation harness, tests, kit inventory, benchmark reproduction and README edits. The team must add every other AI coding tool actually used on its own work. Every team member must be able to explain the submitted code.
+OpenAI Codex assisted the in-window evaluation harness, tests, kit inventory, benchmark reproduction and README edits. GitHub Copilot (Copilot SDK in VS Code) assisted with the pipeline-backed local suggestion provider, its tests, and backend setup documentation. The team must add every other AI coding tool actually used on its own work. Every team member must be able to explain the submitted code.
 
 ## Team
 
