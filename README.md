@@ -4,7 +4,7 @@ Terumo BCT Africa Hackathon 2026 · Challenge area: redistribution
 
 Damu Grid helps a regional stock coordinator decide which eligible red-cell units can be spared at one site and used at a site that is running short, before they expire. A person Accepts, Changes or Rejects every recommendation. Sending and receiving officers then confirm dispatch and receipt. The workflow still works if the forecasting model is offline.
 
-This README follows the official hackathon README template. Results and links will be filled during the 24-hour window. **All application code will be written between Tuesday 10 November 2026, 12:00 EAT and Wednesday 11 November 2026, 12:00 EAT.** This repository currently contains planning documents, issue drafts, and the official starter dataset only. There is no pre-written application code.
+This README follows the official hackathon README template. The local prototype code was written during the 24-hour window. It runs on the official synthetic starter dataset and uses a frozen 31 October closing snapshot and demo clock. Its HTTP server is a local rehearsal tool, not a production deployment.
 
 Planning docs for teammates and AI coding agents are in `docs/` and `AGENTS.md`.
 
@@ -25,23 +25,17 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 
 ## What we built
 
-- What works now: planning documents, official dataset in `data/raw/`, and the intended architecture in `docs/`. Application features will be checked off here as they land in the window.
-- What is mocked or not finished: the working prototype, baseline numbers, UI, demo video and slides are to be built in the window. Tier 2 items are listed in `docs/IMPLEMENTATION_PLAN.md`.
+- What works now: computed RBC recommendation queue; nearest eligible fallback; local browser review with Accept, Change and Reject; transactional reservation and audit; sender dispatch and receiver receipt; a reproducible forecast comparison. Three safety and workflow tests pass.
+- What remains: a production FastAPI/Next.js stack, live as-of reconciliation, a complete cold-chain adapter, offline sync, map, SMS simulation, second-country settings, scenario replay, demo video and final slides. The current interface uses a Python standard-library HTTP server and static HTML to provide a clean local run.
 
 Demo video (3 minutes or less): [link to be added]
 Live demo: [link] · Test log-in: [user / password to be added]
 
 ## How to run it
 
-Step-by-step commands will be added once the packages exist. The intended shape:
+From a clean checkout with Python 3.11+, run `python -m backend.prototype` and open `http://127.0.0.1:8000`. No extra packages or credentials are needed. The first start builds an ignored local database in `data/processed/`. Use the queue to Accept a card, then Dispatch and Receive it in the move panel; the model-off selector shows fallback. The UI supplies clearly named demo actors. Run `python -m unittest discover -s tests -p test_prototype.py` for workflow tests and `python forecasting/evaluate.py` for the frozen evaluation. To reset a rehearsal, stop the server, remove only `data/processed/prototype.sqlite`, and restart it.
 
-1. Copy `.env.example` to `.env` (no secrets in git).
-2. Install Python deps with `uv` and frontend deps with `pnpm` (see folder READMEs).
-3. Load the official CSVs from `data/raw/` into a local SQLite database under `data/processed/` (gitignored).
-4. Start the API and the Next.js app.
-5. Sign in with the demo coordinator / sender / receiver accounts.
-
-Judges should assume a laptop and about 10 minutes. A Docker Compose path is a Tier 2 delivery target.
+These are synthetic replay actions under a frozen demo clock. The actor labels are not secure authentication, and the server binds to `127.0.0.1` only.
 
 ## Architecture
 
@@ -57,7 +51,7 @@ Conceptual mappings to FHIR, ISBT 128 or DHIS2, if added, will be labelled as co
 
 - What the AI or data feature does: a pooled demand estimator (hospital-total RBC demand allocated by historical known-group proportions) informs recipient gaps and sender reserves. Suggestions rank eligible exact-group red-cell units by estimated use before expiry, given typical route time. This is a statistical data feature. An optional Tier 2 LLM only drafts a plain-language explanation from those numbers; it must not invent stock or demand figures.
 - Baseline we compared against: for each hospital and known group, seven-day predicted requested units = 7 × (requested RBC units in the preceding 28 calendar days ÷ 28). Optional second comparison: nearest eligible site first versus expiry-aware ranking, on documented synthetic scenarios.
-- Result: baseline [to be computed in the window] vs ours [to be computed in the window], on the official starter data, using the time split in `docs/EVALUATION.md` (learn 1 Nov 2025–30 Apr 2026; calibrate May–June; evaluate seven-day origins from 1 Jul 2026 through 21 Oct 2026).
+- Result from the in-window `forecasting/evaluate.py`: seven-day RMSE **2.792** for the 28-day site/group baseline versus **2.580** for the pooled candidate; MAE **1.482** versus **1.382**. This uses 17 seven-day origins from 1 July to 21 October 2026 and 4,352 hospital/group predictions on synthetic requests. The evaluator excludes 410 unknown-group RBC hospital requests. No independent unseen-year result is claimed; missing request rows are treated as zero under an unverified reporting-completeness assumption.
 - How a user sees the reason for a recommendation: each card shows unit/group, sender reserve, recipient gap, expiry, typical travel time, data age, assumed benefit, and uncertainty. Deterministic text first; optional LLM rewrite of the same numbers.
 - Who approves it (Accept / Change / Reject): the regional stock coordinator. The sender rechecks and dispatches. The receiver confirms arrival. A qualified safety role controls quarantine; the model cannot clear it.
 - What happens if the AI is wrong or offline: nearest eligible site matching using a simple historical demand rule, with the same safety gates and human decisions. Offline or disconnected actions remain pending until reconciled (Tier 2 sync queue).
@@ -74,7 +68,7 @@ Facilities in the starter data include `grid_reliability`, `connectivity` (2G / 
 
 ## AI tools we used
 
-OpenAI Codex was used on 10 November 2026 to inspect GitHub issue #40 and its dependencies, review the repository and supplied proposal, and prepare the submission blocker register, rehearsal evidence record and freeze checklist. No application implementation or benchmark result is claimed by this documentation change. The team must add any other tools actually used and review and explain submitted work.
+OpenAI Codex was used on 10 November 2026 to inspect GitHub issues and the supplied proposal, write the submission checklist, implement the local prototype and forecast evaluator, run tests, and update this README. The team must add any other tools actually used and review and explain submitted work.
 
 ## Team
 

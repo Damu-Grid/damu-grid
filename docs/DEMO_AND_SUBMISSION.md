@@ -58,8 +58,8 @@ Inspected 10 November 2026 against foundation commit `5db0537`. This is a blocke
 
 | Gate | Current evidence or blocker | Owner to resolve |
 |---|---|---|
-| Running workflow and clean-start commands | BLOCKED: application folders contain planning READMEs only at the inspected commit. No running UI/API to rehearse. | Timi, Brayan, Dan |
-| Forecast table | BLOCKED: no in-window evaluator or generated results in this checkout. Do not paste metrics from the attached pitch. | Blessings |
+| Running workflow and clean-start commands | PARTIAL: local Python/HTML rehearsal prototype now runs; a second teammate must verify the README clean-start command. Planned production stack remains incomplete. | Timi, Brayan, Dan |
+| Forecast table | PRESENT: `forecasting/evaluate.py` computes both models on 4,352 synthetic predictions; second reviewer should rerun and sign off. | Blessings |
 | Architecture diagram | PRESENT: Mermaid diagrams in `docs/ARCHITECTURE.md`; planned design, still requires comparison with implemented behaviour. | Timi and Blessings |
 | Official README | BLOCKED: application commands, measured results and video links remain unfinished. Codex's work in this change is declared. | Everyone |
 | Video (#38) | BLOCKED: no recording, duration measurement or viewable link supplied. | Dan |
