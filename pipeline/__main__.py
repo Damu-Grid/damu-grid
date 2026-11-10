@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 
 from pipeline.coldchain import agreement_with_official, site_flags, unit_flags, write_flags
-from pipeline.config import DEFAULT_CONFIG_PATH, load_config
+from pipeline.config import DEFAULT_CONFIG_PATH, as_of_timestamp, load_config
 from pipeline.eligibility import active_reserved_units, shelf_life_check, unit_eligibility
 from pipeline.load import RAW_DIR, SchemaError, load_all
 from pipeline.quality import quality_report
@@ -25,6 +25,7 @@ PROCESSED_DIR = RAW_DIR.parent / "processed"
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run `validate` or `build` and return the process exit code."""
     parser = argparse.ArgumentParser(prog="python -m pipeline")
     parser.add_argument("command", choices=["validate", "build"])
     parser.add_argument("--raw-dir", type=Path, default=RAW_DIR)
@@ -47,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
                                "discrepancies": report.row_count_discrepancies}, indent=2))
     print(f"report written to {out}")
     config = load_config(args.config)
-    quality = quality_report(tables, config)
+    quality = quality_report(tables, config, as_of_timestamp(config))
     (PROCESSED_DIR / "quality_report.json").write_text(json.dumps(quality, indent=2))
     print("data-quality checks: " + ", ".join(f"{k}={v:,}" for k, v in quality.items()))
     if args.command == "validate":
@@ -59,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     snap = build_snapshot(tables, config)
     write_snapshot(conn, snap, config)
     print("\n".join(snap.summary_lines()))
-    sites = site_flags(tables, config)
+    sites = site_flags(tables, config, snap.as_of)
     flags = unit_flags(snap.units, tables, config, snap.as_of, sites)
     write_flags(conn, pd.concat([sites, flags], ignore_index=True))
     print("cold-chain flags: sites " + str(sites["flag_type"].value_counts().to_dict())

@@ -20,10 +20,12 @@ ABBREVIATIONS = {"crh": "county referral hospital", "hosp": "hospital"}
 
 
 def _normalise_name(s: pd.Series) -> pd.Series:
+    """Lower-case and strip punctuation so typed names can be compared."""
     return s.str.lower().str.replace(r"[^a-z0-9]+", " ", regex=True).str.strip()
 
 
 def _expand(name: str) -> str:
+    """Expand known abbreviations (CRH, Hosp.) in a normalised name."""
     return " ".join(ABBREVIATIONS.get(w, w) for w in name.split())
 
 
@@ -45,6 +47,7 @@ def requests_with_facility_check(requests: pd.DataFrame, facilities: pd.DataFram
     norm_off = {fid: _expand(n) for fid, n in _normalise_name(official.astype("string")).items()}
 
     def classify(raw: str, ref: str, fid: str) -> str:
+        """Classify one typed facility name against the official name and recorded id."""
         if raw == ref:
             return "exact"
         n = _normalise_name(pd.Series([raw])).iloc[0]
@@ -93,11 +96,19 @@ def classify_temperatures(logs: pd.DataFrame, config: PipelineConfig, component:
     return out
 
 
-def logger_gaps(logs: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
-    """Silences longer than `config.logger_gap_hours` between two hourly readings of the same fridge.
-    Returns facility_id, gap_start (last reading), gap_end (next reading), missing_hours."""
+def logger_gaps(
+    logs: pd.DataFrame, config: PipelineConfig, until: pd.Timestamp | None = None
+) -> pd.DataFrame:
+    """Silences of at least `config.logger_gap_hours` between two hourly readings of one fridge.
+
+    Returns facility_id, gap_start (last reading), gap_end (next reading), missing_hours.
+    With `until` (the as-of time), a fridge whose last reading is older than that is also silent
+    through `until`: the trailing silence is reported as a gap that ends at `until`, instead of
+    being invisible because there is no later reading to close it."""
     ordered = logs.sort_values(["facility_id", "recorded_at"])
     nxt = ordered.groupby("facility_id")["recorded_at"].shift(-1)
+    if until is not None:
+        nxt = nxt.fillna(pd.Timestamp(until))
     hours = (nxt - ordered["recorded_at"]) / pd.Timedelta(hours=1) - 1
     gaps = ordered.assign(gap_end=nxt, missing_hours=hours)
     gaps = gaps[gaps["missing_hours"] >= config.logger_gap_hours]
@@ -115,8 +126,12 @@ def possible_duplicate_donors(donors: pd.DataFrame) -> pd.DataFrame:
     return dup[["match_group", "donor_id", *keys]].reset_index(drop=True)
 
 
-def quality_report(tables: dict[str, pd.DataFrame], config: PipelineConfig) -> dict[str, int | float]:
-    """Counts behind each deliberate problem, for docs/DATA.md and the demo."""
+def quality_report(
+    tables: dict[str, pd.DataFrame], config: PipelineConfig, as_of: pd.Timestamp | None = None
+) -> dict[str, int | float]:
+    """Counts behind each deliberate problem, for docs/DATA.md and the demo.
+
+    `as_of` closes the last logger silence of every fridge (see `logger_gaps`)."""
     out: dict[str, int | float] = {}
     if {"requests", "facilities"} <= tables.keys():
         r = requests_with_facility_check(tables["requests"], tables["facilities"])
@@ -139,7 +154,7 @@ def quality_report(tables: dict[str, pd.DataFrame], config: PipelineConfig) -> d
             out[f"temperature_{cls}"] = int(counts.get(cls, 0))
         for value in config.glitch_values:
             out[f"temperature_glitch_{value}"] = int((logs["temp_c"] == value).sum())
-        gaps = logger_gaps(tables["temperature_logs"], config)
+        gaps = logger_gaps(tables["temperature_logs"], config, as_of)
         out["logger_gaps"] = len(gaps)
         out["logger_gap_hours_total"] = float(gaps["missing_hours"].sum())
     if "donors" in tables:

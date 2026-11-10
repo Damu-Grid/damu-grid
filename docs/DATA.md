@@ -93,7 +93,7 @@ Historical `transfers` inform workload and optional policy comparison; they do n
 
 Team defaults from `pipeline/settings/kenya_default.toml` (our choice, configurable, not a regulation): RBC must keep **168 hours (7 days)** of life after the expected arrival; expected arrival = as-of + `typical_travel_hours` + **6 hours** allowance; a unit is treated as expiring at 00:00 on its `expiry_date`; the sender keeps **2 units** of the same component and group by default (the forecast may pass a per-site reserve); the recipient must be one of the 32 hospitals with a gap supplied by the demand estimator or the fallback rule.
 
-Unit-level result on the closing snapshot, before cold-chain flags: of **738 RBC** on the shelf, **637 are eligible**; 87 are excluded because `temp_excursion_exposed = True` and 17 because their last receipt was never confirmed (3 units have both). With the DG-07 cold-chain flags, **598** remain eligible (see below). No RBC on the shelf has an unknown group. Eligible RBC: 406 at hospitals, 231 at regional centres. Each excluded unit carries every reason that applies (`reasons`), so the review screen and the judges can see why.
+Unit-level result on the closing snapshot, before cold-chain flags: of **738 RBC** on the shelf, **637 are eligible**; 87 are excluded because `temp_excursion_exposed = True` and 17 because their last receipt was never confirmed (3 units have both). With the DG-07 cold-chain flags, **488** remain eligible (see below). No RBC on the shelf has an unknown group. Eligible RBC: 406 at hospitals, 231 at regional centres. Each excluded unit carries every reason that applies (`reasons`), so the review screen and the judges can see why.
 
 ## Deliberate data-quality problems (official README)
 
@@ -119,7 +119,7 @@ Shelf lives in the model (dataset README): red cells 42 days, whole blood 35, pl
 | Missing `received_at` | 1,046 of 35,181 transfers (3.0%) | `receipt_status = unconfirmed`, no transit time; in the snapshot, 27 units on the shelf (17 RBC) are flagged and not suggested |
 | Temperature glitches | 55 readings: 17 × −99.0, 16 × 99.9, 22 × 0.0 | Classified `glitch`, never an excursion. The official README says 60; we find 55 exact matches and report the difference |
 | Readings above 6 °C (RBC/WB range) | 4,607 (none below 2 °C apart from the 0.0 glitches) | Input to DG-07 cold-chain events |
-| Logger drop-outs | 370 silences of 6 hours or more, 12,191 missing hours in total | Reported as missing evidence (DG-07), never as "no problem" |
+| Logger drop-outs | 373 silences of 6 hours or more, 12,230 missing hours in total (3 of them still open at the as-of time: HSP-021 for 22 h, RBTC-ELD for 8 h, RBTC-EMB for 9 h) | Reported as missing evidence (DG-07), never as "no problem" |
 | Donor duplicates | 452 sets, 904 records sharing birth date, sex, county and phone last 4 | Listed for review, never merged automatically |
 | Donors with no group | 506 (1.2%) | Kept missing |
 
@@ -131,7 +131,7 @@ Team defaults: an excursion is at least **2 consecutive hourly readings** outsid
 |---|---:|---:|
 | Fridge excursion | 553 | 100 |
 | Outage without backup | 1,017 | 120 |
-| Logger gap | 370 | 90 |
+| Logger gap | 373 | 200 |
 | Cool-box excursion | — | 0 |
 | Official `temp_excursion_exposed` | — | 87 |
 | Receipt unconfirmed | — | 17 |
@@ -140,9 +140,9 @@ Team defaults: an excursion is at least **2 consecutive hourly readings** outsid
 
 Each component has its own policy in `pipeline/settings/kenya_default.toml`: shelf life (RBC 42, WB 35, PLT 5, FFP and CRYO 365 days, all matching `expiry_date − collection_date` in `units.csv`), whether it is in the queue, the remaining life required on arrival (PLT 24 hours) and a maximum road time (PLT 6 hours). Only RBC is in the queue by default. `python -m pipeline build --enable PLT` computes platelet eligibility without changing the RBC result: 19 platelets are on the shelf at as-of and all 19 pass the unit checks. Caveat: the dataset has no storage evidence for platelets (the fridge logs describe the 2–6 °C blood fridge), so platelet eligibility is less informed than RBC. Do not present multi-component support in the demo or README unless the demand path and API are ready (DG-17, DG-29).
 
-A site event is attached to a unit only if it happened while the unit was at that site, using the unit's own time-stamped custody chain (processing centre from release to first dispatch, then each destination from recorded receipt to the next dispatch), never its final location. With these flags, **598 of 738 RBC** remain eligible.
+A site event is attached to a unit only if it happened while the unit was at that site, using the unit's own time-stamped custody chain (processing centre from release to first dispatch, then each destination from recorded receipt to the next dispatch), never its final location. With these flags, **488 of 738 RBC** remain eligible. A fridge that stops reporting and never reports again is silent through the as-of time: the trailing silence counts as a logger gap (3 fridges, 113 RBC on their shelves).
 
-**Check against the official flag:** of the 87 RBC on the shelf that the dataset marks `temp_excursion_exposed = True`, our evidence independently finds **all 87** (111 of 111 for RBC and WB together). It also finds evidence on **39 more RBC** (89 RBC and WB) that the official flag does not mark, mostly short excursions, outages without backup or logger gaps; they are held back for review, not declared unsafe. Peak temperature is the reading furthest outside 2–6 °C.
+**Check against the official flag:** of the 87 RBC on the shelf that the dataset marks `temp_excursion_exposed = True`, our evidence independently finds **all 87** (111 of 111 for RBC and WB together). It also finds evidence on **149 more RBC** (251 RBC and WB) that the official flag does not mark: short excursions, outages without backup, and logger gaps (many from the three fridges that went silent before the closing time); they are held back for review, not declared unsafe. Peak temperature is the reading furthest outside 2–6 °C.
 
 ## Redistribution starting tables
 

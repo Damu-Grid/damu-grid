@@ -54,8 +54,13 @@ def fridge_excursions(logs: pd.DataFrame, config: PipelineConfig, component: str
     return runs[["facility_id", "start_at", "end_at", "hours", "peak_c"]].reset_index(drop=True)
 
 
-def site_flags(tables: dict[str, pd.DataFrame], config: PipelineConfig) -> pd.DataFrame:
-    """Site-level evidence with timestamps."""
+def site_flags(
+    tables: dict[str, pd.DataFrame], config: PipelineConfig, as_of: pd.Timestamp | None = None
+) -> pd.DataFrame:
+    """Site-level evidence with timestamps.
+
+    `as_of` closes the last logger silence of every fridge: a fridge that went quiet before the
+    as-of time and never reported again gets a logger_gap up to that time."""
     rows = []
     ex = fridge_excursions(tables["temperature_logs"], config)
     for r in ex.itertuples(index=False):
@@ -68,7 +73,7 @@ def site_flags(tables: dict[str, pd.DataFrame], config: PipelineConfig) -> pd.Da
         rows.append(("outage_no_backup", r.facility_id, None, r.start_time, r.end_time,
                      float(r.duration_hours), "power_outages", r.outage_id,
                      f"power cut of {r.duration_hours} h with no backup on the blood fridge"))
-    gaps = logger_gaps(tables["temperature_logs"], config)
+    gaps = logger_gaps(tables["temperature_logs"], config, as_of)
     for r in gaps.itertuples(index=False):
         rows.append(("logger_gap", r.facility_id, None, r.gap_start, r.gap_end, float(r.missing_hours),
                      "temperature_logs", None,
@@ -83,7 +88,7 @@ def site_flags(tables: dict[str, pd.DataFrame], config: PipelineConfig) -> pd.Da
 def unit_flags(snapshot_units: pd.DataFrame, tables: dict[str, pd.DataFrame], config: PipelineConfig,
                as_of: pd.Timestamp, sites: pd.DataFrame | None = None) -> pd.DataFrame:
     """Evidence attached to units on the shelf at the as-of time."""
-    sites = site_flags(tables, config) if sites is None else sites
+    sites = site_flags(tables, config, as_of) if sites is None else sites
     units = snapshot_units
     rows = []
 
@@ -159,6 +164,7 @@ def agreement_with_official(units: pd.DataFrame, flags: pd.DataFrame) -> dict[st
 
 
 def _frame(rows: list[tuple], scope: str, config: PipelineConfig) -> pd.DataFrame:
+    """Build the flag table (scope, blocking status, ids) from evidence rows."""
     df = pd.DataFrame(rows, columns=["flag_type", "facility_id", "unit_id", "start_at", "end_at", "value",
                                      "source_table", "source_ref", "note"])
     df["scope"] = scope
@@ -168,7 +174,9 @@ def _frame(rows: list[tuple], scope: str, config: PipelineConfig) -> pd.DataFram
 
 
 def write_flags(conn, flags: pd.DataFrame) -> None:
+    """Replace the content of dg_cold_chain_flags with `flags`."""
     def ts(v):
+        """Format a timestamp as EAT text, or None if missing."""
         return None if pd.isna(v) else pd.Timestamp(v).strftime("%Y-%m-%d %H:%M:%S")
 
     conn.execute("DELETE FROM dg_cold_chain_flags")

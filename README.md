@@ -26,7 +26,7 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 ## What we built
 
 - What works now: the FastAPI health, snapshot, and suggestions endpoints; the human review workflow; the append-only audit trail; and the synthetic forecasting evaluation harness. When the processed store or ranking provider is unavailable, `/suggestions` reports that state instead of returning fake computed cards.
-  - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (598 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags checked against the official exposure flag (87 of 87 exposed red cells found), with its own automated tests.
+  - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (488 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags checked against the official exposure flag (87 of 87 exposed red cells found), with its own automated tests.
 - What remains in progress: connecting the pipeline ranking provider and completing the demo video and slides. Tier 2 items are tracked in `docs/IMPLEMENTATION_PLAN.md`.
 
 Demo video (3 minutes or less): [link to be added]
@@ -127,7 +127,7 @@ Measured on the CSVs in the window (all synthetic; details and denominators in `
 
 - All 11 tables match the documented row counts; every facility reference exists in `facilities.csv`.
 - Closing snapshot at 31 October 2026, 23:59:59 EAT: 8,666 units on the shelf (738 RBC), matching `daily_stock` in all 509 facility × component × group cells.
-- Red cells that may be suggested: 598 of 738. Excluded: 87 officially exposed to a temperature excursion, 17 with an unconfirmed receipt, and 39 more with evidence of a fridge excursion, an outage without backup or a logger gap while on the shelf.
+- Red cells that may be suggested: 488 of 738. Excluded: 87 officially exposed to a temperature excursion and 17 with an unconfirmed receipt (3 units are in both groups, so 101 in total), plus 149 more with evidence of a fridge excursion, an outage without backup or a logger gap while on the shelf, including 113 red cells at three fridges whose logger went silent 8 to 22 hours before the closing time (87 + 17 - 3 + 149 = 250 = 738 - 488).
 - Data-quality handling: 1,852 requests (10.6%) with a typed facility name that differs from the official one, keyed by `facility_id`; 442 emergency requests with unknown group, kept unknown; 1,046 transfers (3.0%) without `received_at`, never filled in; 55 sensor-glitch readings, never treated as excursions.
 
 Licence / terms: there is no SPDX licence on the dataset. Official rules: use it freely in the hackathon and demo; say that we used the synthetic starter dataset; do not present findings as facts about real Kenyan facilities; cite any other data (we do not plan to add any); no real donor, patient or facility records. See `data/raw/README.md` and `docs/DATA.md`.

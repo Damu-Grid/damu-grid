@@ -26,6 +26,7 @@ NEEDED = ["facilities", "routes", "donations", "units", "transfers", "daily_stoc
 
 @pytest.fixture(scope="module")
 def official():
+    """Test helper: official."""
     if not (RAW_DIR / "units.csv").exists():
         pytest.skip("official dataset not present")
     tables, _ = load_all(names=NEEDED)
@@ -35,6 +36,7 @@ def official():
 
 
 def test_snapshot_reconciles_with_daily_stock(official):
+    """Snapshot reconciles with daily stock."""
     _, _, snap = official
     assert len(snap.units) == 8666 and snap.daily_stock_total == 8666
     assert snap.reconciliation.empty
@@ -42,12 +44,13 @@ def test_snapshot_reconciles_with_daily_stock(official):
 
 
 def test_rbc_eligibility_counts(official):
+    """Rbc eligibility counts."""
     tables, cfg, snap = official
     before = unit_eligibility(snap.units, cfg, snap.as_of)
     assert len(before.eligible) == 637
     flags = unit_flags(snap.units, tables, cfg, snap.as_of)
     after = unit_eligibility(snap.units, cfg, snap.as_of, unit_flags=flags)
-    assert len(after.eligible) == 598
+    assert len(after.eligible) == 488
     rbc = snap.units[snap.units["component"] == "RBC"]
     agree = agreement_with_official(rbc, flags[flags["unit_id"].isin(rbc["unit_id"])])
     assert agree["official_exposed_with_our_evidence"] == agree["official_exposed"] == 87
@@ -57,6 +60,7 @@ def test_rbc_eligibility_counts(official):
 
 
 def test_data_quality_counts(official):
+    """Data quality counts."""
     tables, cfg, _ = official
     rep = quality_report(tables, cfg)
     assert rep["temperature_glitch"] == 55
@@ -65,6 +69,7 @@ def test_data_quality_counts(official):
 
 
 def test_build_command_end_to_end(tmp_path):
+    """Build command end to end."""
     if not (RAW_DIR / "units.csv").exists():
         pytest.skip("official dataset not present")
     db = tmp_path / "damu_grid.sqlite"

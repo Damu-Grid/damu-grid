@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import asdict, dataclass, field, replace
+from datetime import datetime
 from pathlib import Path
+
+import pandas as pd
 
 from pipeline.schema import BLOOD_GROUPS, HOSPITAL_TYPES
 
@@ -18,6 +21,7 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "settings" / "kenya_defa
 
 @dataclass(frozen=True)
 class ComponentPolicy:
+    """Shelf life, queue membership and limits of one blood component."""
     shelf_life_days: int
     # Suggestable in the live review queue. Tier 1 = RBC only (AGENTS.md).
     enabled_in_queue: bool = False
@@ -32,6 +36,7 @@ class ComponentPolicy:
 
 @dataclass(frozen=True)
 class PipelineConfig:
+    """Every pipeline limit (ADR-006): shelf lives, eligibility and cold chain."""
     country: str = "KE"
     # End of the modelled year, EAT (docs/DATA.md snapshot convention).
     as_of: str = "2026-10-31T23:59:59+03:00"
@@ -64,17 +69,21 @@ class PipelineConfig:
     )
 
     def policy(self, component: str) -> ComponentPolicy:
+        """Return the policy of `component`."""
         return self.components[component]
 
     def enabled_components(self) -> tuple[str, ...]:
+        """Components shown in the live review queue."""
         return tuple(c for c, p in self.components.items() if p.enabled_in_queue)
 
     def with_components_enabled(self, *components: str) -> PipelineConfig:
+        """Return a copy with `components` also enabled in the queue."""
         comps = {c: replace(p, enabled_in_queue=p.enabled_in_queue or c in components)
                  for c, p in self.components.items()}
         return replace(self, components=comps)
 
     def to_dict(self) -> dict:
+        """Return the configuration as a plain dict."""
         return asdict(self)
 
 
@@ -89,3 +98,8 @@ def load_config(path: Path | None = DEFAULT_CONFIG_PATH) -> PipelineConfig:
         comps[name] = replace(comps[name], **values) if name in comps else ComponentPolicy(**values)
     tuples = {k: tuple(v) for k, v in data.items() if isinstance(v, list)}
     return replace(base, components=comps, **{**data, **tuples})
+
+
+def as_of_timestamp(config: PipelineConfig) -> pd.Timestamp:
+    """The as-of time as a naive EAT timestamp, the form used by the official CSVs."""
+    return pd.Timestamp(datetime.fromisoformat(config.as_of).replace(tzinfo=None))
