@@ -24,6 +24,7 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 ## What we built
 
 - What works now: planning documents, official dataset in `data/raw/`, and the intended architecture in `docs/`. Application features will be checked off here as they land in the window.
+  - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (598 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags. 71 automated tests.
 - What is mocked or not finished: the working prototype, baseline numbers, UI, demo video and slides are to be built in the window. Tier 2 items are listed in `docs/IMPLEMENTATION_PLAN.md`.
 
 Demo video (3 minutes or less): [link to be added]
@@ -31,19 +32,48 @@ Live demo: [link] · Test log-in: [user / password to be added]
 
 ## How to run it
 
-Step-by-step commands will be added once the packages exist. The intended shape:
+Requirements: Python 3.11+ and [uv](https://docs.astral.sh/uv) (or `pip install pandas numpy pytest ruff`).
+
+```bash
+git clone https://github.com/Damu-Grid/damu-grid.git
+cd damu-grid
+uv sync
+uv run python -m pipeline build     # ~15 s: validates the CSVs, writes data/processed/damu_grid.sqlite
+uv run pytest                       # 71 tests (add -m "not dataset" for the 10-second subset)
+```
+
+`python -m pipeline build` prints the row counts, the closing snapshot, the cold-chain flags and how many red-cell units are eligible, with the reason for every exclusion. Nothing under `data/raw/` is written. Details: `pipeline/README.md`.
+
+Remaining steps, to be completed as the other packages land:
 
 1. Copy `.env.example` to `.env` (no secrets in git).
-2. Install Python deps with `uv` and frontend deps with `pnpm` (see folder READMEs).
-3. Load the official CSVs from `data/raw/` into a local SQLite database under `data/processed/` (gitignored).
-4. Start the API and the Next.js app.
-5. Sign in with the demo coordinator / sender / receiver accounts.
+2. Install frontend deps with `pnpm` (see `frontend/README.md`).
+3. Start the API and the Next.js app.
+4. Sign in with the demo coordinator / sender / receiver accounts.
 
 Judges should assume a laptop and about 10 minutes. A Docker Compose path is a Tier 2 delivery target.
 
 ## Architecture
 
-A diagram will be added at `docs/architecture.png` (or SVG) during the window. The intended flow is documented with mermaid in `docs/ARCHITECTURE.md`:
+```mermaid
+flowchart LR
+  csv[(Official CSVs<br/>data/raw, read-only)] --> val[Validation<br/>pipeline/load.py]
+  val --> db[(Shared SQLite<br/>data/processed/damu_grid.sqlite)]
+  db --> snap[Closing snapshot<br/>31 Oct 2026]
+  db --> cold[Cold-chain flags]
+  snap --> elig[Eligibility engine<br/>reason per exclusion]
+  cold --> elig
+  db --> fc[Demand estimator<br/>+ 28-day baseline]
+  fc --> rank[Suggestion ranking]
+  fb[Rule-based fallback] --> rank
+  elig --> rank
+  rank --> review[Review screen<br/>Accept / Change / Reject]
+  review --> moves[(dg_moves<br/>reserve / dispatch / receipt)]
+  moves --> audit[(dg_audit_events<br/>append-only)]
+  db -.read-only.-> evalr[Baseline evaluator]
+```
+
+Implemented so far: validation, shared SQLite schema, closing snapshot, cold-chain flags and eligibility (`pipeline/`). The other boxes are in progress; the full design is in `docs/ARCHITECTURE.md`.
 
 Official CSVs → validation and local SQLite → demand estimator and rule fallback → eligibility engine → review screen → reservation / dispatch / receipt and audit.
 
@@ -63,6 +93,13 @@ Conceptual mappings to FHIR, ISBT 128 or DHIS2, if added, will be labelled as co
 ## Data
 
 We use the official synthetic starter dataset in `data/raw/`. Tables used for the core workflow: `facilities`, `routes`, `units`, `daily_stock`, `requests`, `transfers`. Optional / Tier 2: `donations`, `power_outages`, `temperature_logs`. Donor tables are not required for redistribution decisions and will not be displayed as personal data.
+
+Measured on the CSVs in the window (all synthetic; details and denominators in `docs/DATA.md`):
+
+- All 11 tables match the documented row counts; every facility reference exists in `facilities.csv`.
+- Closing snapshot at 31 October 2026, 23:59:59 EAT: 8,666 units on the shelf (738 RBC), matching `daily_stock` in all 509 facility × component × group cells.
+- Red cells that may be suggested: 598 of 738. Excluded: 87 officially exposed to a temperature excursion, 17 with an unconfirmed receipt, and 39 more with evidence of a fridge excursion, an outage without backup or a logger gap while on the shelf.
+- Data-quality handling: 1,852 requests (10.6%) with a typed facility name that differs from the official one, keyed by `facility_id`; 442 emergency requests with unknown group, kept unknown; 1,046 transfers (3.0%) without `received_at`, never filled in; 55 sensor-glitch readings, never treated as excursions.
 
 Licence / terms: there is no SPDX licence on the dataset. Official rules: use it freely in the hackathon and demo; say that we used the synthetic starter dataset; do not present findings as facts about real Kenyan facilities; cite any other data (we do not plan to add any); no real donor, patient or facility records. See `data/raw/README.md` and `docs/DATA.md`.
 
@@ -90,7 +127,9 @@ There is **no team lead**. Everyone is an equal teammate. Blessings and Timi are
 - Results in this README will be computed in the window on synthetic data only.
 - Tier 1 is known-group RBC. Other components (for example platelets, 5-day shelf life in the dataset model) are Tier 2 and need their own policy before they are treated like red cells.
 - Historical inventory will use an explicit closing snapshot, not a reconstruction from final unit locations.
-- About 3% of `transfers` lack `received_at`; 14% of `requests` have messy typed facility names (use `facility_id`); 5% of emergency requests have unknown blood group; temperature logs contain gaps and 60 documented sensor glitches.
+- About 3% of `transfers` lack `received_at`; the dataset README says 14% of `requests` have messy typed facility names (our exact comparison finds 10.6%; we use `facility_id`); 5% of emergency requests have unknown blood group; temperature logs contain gaps and, per the dataset README, 60 sensor glitches (we find 55 readings of exactly −99.0, 99.9 or 0.0).
+- Eligibility limits (7 days of life after arrival, 6-hour arrival allowance, sender reserve of 2 units, 2-hour excursion threshold, 6-hour logger gap) are team defaults in `pipeline/settings/kenya_default.toml`, not regulations, and should be reviewed with a blood-service expert.
+- The dataset has no storage evidence for platelets or frozen plasma, so cold-chain flags cover red cells and whole blood only.
 - The dataset README lists `blood_system.sqlite`, which was not in the official zip we received.
 
 Next steps after the hackathon, if any, will be listed here after the demo.
