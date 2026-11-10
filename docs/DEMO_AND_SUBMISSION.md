@@ -52,6 +52,7 @@ Checked on branch `feat/DG-01-pipeline`; re-run on `main` after merge and before
 
 | Item | Status | Owner / blocker |
 |---|---|---|
+| Automated | `uv run python scripts/check_submission.py --tests` runs every check below on the committed files (HEAD), avoiding the Windows line-ending false alarm | Run it on `main` just before making the repo public |
 | No secrets | Passed: no `.env` tracked (only `.env.example`), no key-like strings outside `data/raw/` | Re-check on `main` before making the repo public |
 | Dataset untouched | Passed: all 11 committed CSVs match `data/raw/SHA256SUMS` | On Windows with `core.autocrlf=true` the working copy shows CRLF and `sha256sum -c` fails locally; the committed bytes are unchanged |
 | No file over 5 MB outside `data/raw/` | Passed (`data/processed/` is gitignored) | — |
