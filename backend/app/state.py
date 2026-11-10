@@ -2,7 +2,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -73,7 +73,9 @@ class ActionStore:
                 created_by TEXT NOT NULL,
                 reason TEXT NOT NULL,
                 cold_chain_evidence_complete INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                dispatched_at TEXT,
+                received_at TEXT
             );
             CREATE TABLE IF NOT EXISTS reservations (
                 unit_id TEXT PRIMARY KEY,
@@ -113,6 +115,13 @@ class ActionStore:
             connection.execute(
                 "ALTER TABLE suggestions ADD COLUMN active INTEGER NOT NULL DEFAULT 1"
             )
+        move_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(moves)").fetchall()
+        }
+        if "dispatched_at" not in move_columns:
+            connection.execute("ALTER TABLE moves ADD COLUMN dispatched_at TEXT")
+        if "received_at" not in move_columns:
+            connection.execute("ALTER TABLE moves ADD COLUMN received_at TEXT")
         ensure_audit_schema(connection)
         return connection
 
@@ -224,7 +233,7 @@ class ActionStore:
         return Suggestion.model_validate_json(row["body_json"])
 
     def read_suggestion(self, suggestion_id: str) -> Suggestion:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             return self.get_suggestion(connection, suggestion_id)
 
     @staticmethod
@@ -330,6 +339,15 @@ class ActionStore:
             self._require_role(body["role"], "coordinator")
             suggestion = self.get_suggestion(connection, suggestion_id)
             self._check_version(connection, suggestion, body["unit_version"])
+            if decision == "reject" and connection.execute(
+                "SELECT 1 FROM moves WHERE suggestion_id = ? AND status = 'reserved' LIMIT 1",
+                (suggestion_id,),
+            ).fetchone():
+                raise ActionError(
+                    409,
+                    "move_still_reserved",
+                    "Cancel the reserved move before rejecting this suggestion.",
+                )
             if decision == "accept":
                 self._check_eligibility(suggestion, checker)
                 for unit_id in suggestion.unit_ids:
@@ -355,7 +373,10 @@ class ActionStore:
             )
             status = "reserved" if decision == "accept" else "rejected"
             connection.execute(
-                "INSERT INTO moves VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+                "INSERT INTO moves (move_id, suggestion_id, unit_ids_json, from_facility_id, "
+                "to_facility_id, status, lease_expires_at, created_by, reason, "
+                "cold_chain_evidence_complete, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
                 (
                     move_id,
                     suggestion_id,
@@ -566,7 +587,8 @@ class ActionStore:
                         )
                 new_status = "in_transit"
                 connection.execute(
-                    "UPDATE moves SET status = ? WHERE move_id = ?", (new_status, move_id)
+                    "UPDATE moves SET status = ?, dispatched_at = ? WHERE move_id = ?",
+                    (new_status, self._now().isoformat(), move_id),
                 )
                 connection.execute(
                     "UPDATE unit_state SET inventory_status = 'in_transit' "
@@ -580,6 +602,14 @@ class ActionStore:
                 )
                 connection.execute("DELETE FROM reservations WHERE move_id = ?", (move_id,))
             elif action == "receive":
+                if move["received_at"] is not None:
+                    raise ActionError(409, "already_received", "This move was already received.")
+                if move["status"] == "quarantined" and move["dispatched_at"] is None:
+                    raise ActionError(
+                        409,
+                        "move_not_dispatched",
+                        "A quarantined move cannot be received unless it was dispatched first.",
+                    )
                 if move["status"] not in {"in_transit", "quarantined"}:
                     raise ActionError(
                         409, "invalid_move_state", "Only an in-transit move can be received."
@@ -599,9 +629,15 @@ class ActionStore:
                         "received" if body["cold_chain_evidence_complete"] else "received_held"
                     )
                 connection.execute(
-                    "UPDATE moves SET status = ?, cold_chain_evidence_complete = ? "
+                    "UPDATE moves SET status = ?, cold_chain_evidence_complete = ?, "
+                    "received_at = ? "
                     "WHERE move_id = ?",
-                    (new_status, int(body["cold_chain_evidence_complete"]), move_id),
+                    (
+                        new_status,
+                        int(body["cold_chain_evidence_complete"]),
+                        self._now().isoformat(),
+                        move_id,
+                    ),
                 )
                 connection.execute(
                     "UPDATE unit_state SET inventory_status = ? "
@@ -622,8 +658,11 @@ class ActionStore:
                     )
                 new_status = "quarantined"
                 connection.execute(
-                    "UPDATE moves SET status = ? WHERE move_id = ?", (new_status, move_id)
+                    "UPDATE moves SET status = ?, lease_expires_at = NULL WHERE move_id = ?",
+                    (new_status, move_id),
                 )
+                if move["status"] == "reserved":
+                    connection.execute("DELETE FROM reservations WHERE move_id = ?", (move_id,))
                 connection.execute(
                     "UPDATE unit_state SET quarantined = 1, inventory_status = 'quarantined', "
                     f"version = version + 1 WHERE unit_id IN ({unit_placeholders})",
@@ -650,7 +689,7 @@ class ActionStore:
             return {**dict(row), "unit_ids": json.loads(row["unit_ids_json"])}
 
     def list_audit(self, filters: dict[str, str | None]) -> list[dict]:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             query = "SELECT * FROM audit_events WHERE 1=1"
             values: list[str] = []
             for field in ("unit_id", "actor_id", "move_id"):
@@ -679,7 +718,7 @@ class ActionStore:
             ]
 
     def get_settings(self) -> dict:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             row = connection.execute(
                 "SELECT payload_json FROM app_settings WHERE singleton = 1"
             ).fetchone()
@@ -825,7 +864,7 @@ class ActionStore:
             return {"event_id": event_id, "status": status, "result": result}
 
     def list_sync_status(self, event_ids: list[str] | None = None) -> list[dict]:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             if event_ids:
                 placeholders = ",".join("?" for _ in event_ids)
                 rows = connection.execute(

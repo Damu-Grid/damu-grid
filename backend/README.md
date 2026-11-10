@@ -27,4 +27,4 @@ uv sync
 uv run uvicorn backend.app.main:app --reload --port 8000 --env-file .env
 ```
 
-The ignored local `.env` enables the OpenAI-compatible provider. Set `OPENAI_API_KEY` in the shell before starting the server. Without that credential, explanations use the deterministic template. The processed pipeline store and ranking provider must be supplied before suggestions are available.
+For live explanations, configure `LLM_ENABLED=true`, `LLM_MODEL`, and `LLM_API_KEY` in the ignored local `.env`. `LLM_PROVIDER` and `LLM_BASE_URL` default to the OpenAI-compatible API. Without the required settings, explanations use the deterministic template. The processed pipeline store and ranking provider must be supplied before suggestions are available.

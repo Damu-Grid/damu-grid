@@ -1,9 +1,11 @@
 import sqlite3
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
 from backend.app.schemas import Suggestion, Uncertainty
+from backend.app.state import ActionStore
 
 
 def card(unit_ids: list[str] | None = None) -> Suggestion:
@@ -79,6 +81,25 @@ def test_reused_event_id_with_different_payload_conflicts(tmp_path) -> None:
     assert conflict.status_code == 409
     assert conflict.json()["code"] == "event_id_conflict"
     assert client.get("/suggestions").json()["items"] == []
+
+
+def test_rejecting_reserved_suggestion_conflicts_without_stranding_reservation(tmp_path) -> None:
+    client = make_client(tmp_path)
+    accepted = client.post("/suggestions/sug-state/accept", json=decision("event-accept"))
+    move_id = accepted.json()["move_id"]
+
+    rejected = client.post("/suggestions/sug-state/reject", json=decision("event-reject"))
+
+    assert rejected.status_code == 409
+    assert rejected.json()["code"] == "move_still_reserved"
+    assert client.get(f"/moves/{move_id}").json()["status"] == "reserved"
+    with sqlite3.connect(tmp_path / "actions.sqlite") as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM reservations WHERE move_id = ?", (move_id,)
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT active FROM suggestions WHERE suggestion_id = 'sug-state'"
+        ).fetchone()[0] == 1
 
 
 def test_wrong_role_stale_version_and_eligibility_are_rejected(tmp_path) -> None:
@@ -170,6 +191,36 @@ def test_quarantine_raised_in_transit_is_preserved_at_receipt(tmp_path) -> None:
         f"/moves/{move_id}/quarantine",
         json={"event_id": "event-quarantine", "actor_id": "demo-safety", "role": "safety"},
     )
+    receive_body = {
+        "event_id": "event-receive",
+        "actor_id": "demo-receiver",
+        "role": "receiver",
+        "cold_chain_evidence_complete": True,
+    }
+    received = client.post(f"/moves/{move_id}/receive", json=receive_body)
+    replay = client.post(f"/moves/{move_id}/receive", json=receive_body)
+    second_receipt = client.post(
+        f"/moves/{move_id}/receive", json={**receive_body, "event_id": "event-receive-again"}
+    )
+
+    assert quarantined.json()["status"] == "quarantined"
+    assert received.status_code == 200
+    assert received.json()["status"] == "quarantined"
+    assert replay.status_code == 200
+    assert replay.json() == received.json()
+    assert second_receipt.status_code == 409
+    assert second_receipt.json()["code"] == "already_received"
+
+
+def test_reserved_move_quarantined_before_dispatch_cannot_be_received(tmp_path) -> None:
+    client = make_client(tmp_path)
+    move = client.post("/suggestions/sug-state/accept", json=decision("event-accept")).json()
+    move_id = move["move_id"]
+    quarantined = client.post(
+        f"/moves/{move_id}/quarantine",
+        json={"event_id": "event-quarantine", "actor_id": "demo-safety", "role": "safety"},
+    )
+
     received = client.post(
         f"/moves/{move_id}/receive",
         json={
@@ -180,9 +231,42 @@ def test_quarantine_raised_in_transit_is_preserved_at_receipt(tmp_path) -> None:
         },
     )
 
-    assert quarantined.json()["status"] == "quarantined"
-    assert received.status_code == 200
-    assert received.json()["status"] == "quarantined"
+    assert quarantined.status_code == 200
+    assert received.status_code == 409
+    assert received.json()["code"] == "move_not_dispatched"
+    assert client.get(f"/moves/{move_id}").json()["status"] == "quarantined"
+    with sqlite3.connect(tmp_path / "actions.sqlite") as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM reservations WHERE move_id = ?", (move_id,)
+        ).fetchone()[0] == 0
+
+
+def test_read_only_store_connections_are_closed(tmp_path) -> None:
+    class TrackingActionStore(ActionStore):
+        def __init__(self, database_path):
+            super().__init__(database_path)
+            self.connections = []
+
+        def _connect(self):
+            connection = super()._connect()
+            self.connections.append(connection)
+            return connection
+
+    store = TrackingActionStore(tmp_path / "actions.sqlite")
+    store.save_suggestions([card()])
+
+    reads = [
+        lambda: store.read_suggestion("sug-state"),
+        lambda: store.list_audit({}),
+        store.get_settings,
+        store.list_sync_status,
+    ]
+    for read in reads:
+        before = len(store.connections)
+        read()
+        assert len(store.connections) == before + 1
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            store.connections[-1].execute("SELECT 1")
 
 
 def test_lease_expiry_cancels_a_reservation_and_audit_is_append_only(tmp_path) -> None:

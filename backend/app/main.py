@@ -1,10 +1,12 @@
 import os
+import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from backend.app.explanations import ExplanationService, default_explanation_service
 from backend.app.schemas import (
@@ -114,7 +116,8 @@ def create_app(
         policy: Annotated[Policy, Query()] = "expiry_aware",
     ) -> SuggestionListResponse:
         try:
-            items = [explainer.apply(item) for item in suggestion_provider(policy)]
+            items = actions.save_suggestions(suggestion_provider(policy))
+            items = explainer.apply_many(items, budget_seconds=8.0)
             is_fallback = policy == "fallback"
             items = [
                 item.model_copy(update={"policy": policy, "fallback": is_fallback})
@@ -256,60 +259,71 @@ def create_app(
     def sync_queue(body: SyncQueueRequest) -> dict:
         results = []
         for event in body.events:
-            event_payload = event.model_dump(mode="json")
-            pending = actions.set_sync_status(event.event_id, event_payload, "pending", {})
-            if pending["status"] != "pending":
-                results.append(pending)
-                continue
-            action_body = {
-                **event.payload,
-                "event_id": event.event_id,
-                "actor_id": event.actor_id,
-                "role": event.role,
-            }
             try:
-                if event.action in {"accept", "reject"}:
-                    request = DecisionRequest.model_validate(action_body)
-                    result = actions.decide(
-                        suggestion_id=event.resource_id,
-                        decision=event.action,
-                        body=request.model_dump(),
-                        checker=eligibility_check,
-                    )
-                elif event.action == "change":
-                    request = ChangeRequest.model_validate(action_body)
-                    result = actions.change(
-                        suggestion_id=event.resource_id,
-                        body=request.model_dump(),
-                        checker=eligibility_check,
-                        change_suggestion=change_suggestion,
-                    )
-                elif event.action == "dispatch":
-                    request = MoveActionRequest.model_validate(action_body)
-                    result = actions.transition(
-                        move_id=event.resource_id,
-                        action="dispatch",
-                        body=request.model_dump(),
-                        checker=eligibility_check,
-                    )
-                else:
-                    request = ReceiveRequest.model_validate(action_body)
-                    result = actions.transition(
-                        move_id=event.resource_id,
-                        action="receive",
-                        body=request.model_dump(),
-                    )
-                status = "accepted"
-            except ActionError as exc:
-                result = {"code": exc.code, "message": exc.message}
-                status = "rejected_on_reconcile"
-            except Exception:
-                result = {
-                    "code": "invalid_pending_action",
-                    "message": "Pending action payload is invalid.",
+                event_payload = event.model_dump(mode="json")
+                pending = actions.set_sync_status(event.event_id, event_payload, "pending", {})
+                if pending["status"] != "pending":
+                    results.append(pending)
+                    continue
+                action_body = {
+                    **event.payload,
+                    "event_id": event.event_id,
+                    "actor_id": event.actor_id,
+                    "role": event.role,
                 }
-                status = "rejected_on_reconcile"
-            results.append(actions.set_sync_status(event.event_id, event_payload, status, result))
+                try:
+                    if event.action in {"accept", "reject"}:
+                        request = DecisionRequest.model_validate(action_body)
+                        result = actions.decide(
+                            suggestion_id=event.resource_id,
+                            decision=event.action,
+                            body=request.model_dump(),
+                            checker=eligibility_check,
+                        )
+                    elif event.action == "change":
+                        request = ChangeRequest.model_validate(action_body)
+                        result = actions.change(
+                            suggestion_id=event.resource_id,
+                            body=request.model_dump(),
+                            checker=eligibility_check,
+                            change_suggestion=change_suggestion,
+                        )
+                    elif event.action == "dispatch":
+                        request = MoveActionRequest.model_validate(action_body)
+                        result = actions.transition(
+                            move_id=event.resource_id,
+                            action="dispatch",
+                            body=request.model_dump(),
+                            checker=eligibility_check,
+                        )
+                    else:
+                        request = ReceiveRequest.model_validate(action_body)
+                        result = actions.transition(
+                            move_id=event.resource_id,
+                            action="receive",
+                            body=request.model_dump(),
+                        )
+                    status = "accepted"
+                except ActionError as exc:
+                    result = {"code": exc.code, "message": exc.message}
+                    status = "rejected_on_reconcile"
+                except ValidationError:
+                    result = {
+                        "code": "invalid_pending_action",
+                        "message": "Pending action payload is invalid.",
+                    }
+                    status = "rejected_on_reconcile"
+                results.append(
+                    actions.set_sync_status(event.event_id, event_payload, status, result)
+                )
+            except (sqlite3.OperationalError, TimeoutError, ConnectionError) as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "sync_temporarily_unavailable",
+                        "message": "Pending action reconciliation can be retried.",
+                    },
+                ) from exc
         return {"items": results}
 
     @app.get("/sync/status", tags=["sync"])

@@ -1,3 +1,5 @@
+import sqlite3
+
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
@@ -113,6 +115,58 @@ def test_sync_reconciles_idempotently_and_exposes_status(tmp_path) -> None:
     assert first.json()["items"][0]["status"] == "accepted"
     assert replay.json()["items"][0]["status"] == "accepted"
     assert status.json()["items"][0]["status"] == "accepted"
+
+
+def test_sync_validation_error_is_rejected_on_reconcile(tmp_path) -> None:
+    client = client_for(tmp_path)
+    response = client.post(
+        "/sync/queue",
+        json={
+            "events": [
+                {
+                    "event_id": "offline-invalid-accept",
+                    "action": "accept",
+                    "resource_id": "sug-tier2",
+                    "actor_id": "demo-coordinator",
+                    "role": "coordinator",
+                    "payload": {},
+                }
+            ]
+        },
+    )
+
+    item = response.json()["items"][0]
+    assert item["status"] == "rejected_on_reconcile"
+    assert item["result"]["code"] == "invalid_pending_action"
+
+
+def test_sync_database_error_is_retryable_and_stays_pending(tmp_path, monkeypatch) -> None:
+    client = client_for(tmp_path)
+    store = client.app.state.action_store
+
+    def fail_decision(**_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(store, "decide", fail_decision)
+    request = {
+        "events": [
+            {
+                "event_id": "offline-retry-accept",
+                "action": "accept",
+                "resource_id": "sug-tier2",
+                "actor_id": "demo-coordinator",
+                "role": "coordinator",
+                "payload": {"reason": "offline review", "unit_version": 0},
+            }
+        ]
+    }
+
+    response = client.post("/sync/queue", json=request)
+    status = client.get("/sync/status?event_ids=offline-retry-accept")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "sync_temporarily_unavailable"
+    assert status.json()["items"][0]["status"] == "pending"
 
 
 def test_sync_safety_conflict_is_rejected_and_quarantine_stays_blocked(tmp_path) -> None:
