@@ -37,7 +37,7 @@ End-to-end tests: `pnpm test:e2e`. Playwright starts a **test-only mock API** (`
 | `app/dispatch/` | Sender: reserved moves, lease countdown, recheck checklist, dispatch |
 | `app/receive/` | Receiver: moves in transit, cold-chain evidence, receipt (not a release for transfusion) |
 | `app/moves/[id]/` | Move state and audit trail; held-for-safety banner |
-| `app/evaluation/` | Stub until DG-33 |
+| `app/evaluation/` | Forecast vs 28-day baseline from `GET /evaluation/forecast`: plain-language verdict (says so if the candidate loses), RMSE/MAE/n/coverage table, split and exclusions, `/snapshot` counts if provided. Shows "Not computed yet" and no numbers until the API returns them |
 | `lib/api/schemas.ts` | Zod schemas mirroring `docs/API_SPEC.md` |
 | `lib/api/client.ts` | Fetch wrapper: base URL, error mapping (403/409/422/503), `event_id` |
 | `lib/fixtures/` | Fake layout placeholders (`FIXTURE-…` IDs), shown only when the API is unreachable, under a "Not computed" banner |
