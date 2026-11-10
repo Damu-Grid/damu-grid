@@ -17,6 +17,8 @@ import subprocess
 import sys
 
 MAX_BYTES = 5 * 1024 * 1024
+# The checker and its tests contain fake secret shapes on purpose.
+SELF_FILES = {"scripts/check_submission.py", "tests/test_check_submission.py"}
 SECRET_PATTERNS = [
     re.compile(r"-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     re.compile(r"AKIA[0-9A-Z]{16}"),                              # AWS access key id
@@ -66,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
                                                                ".ts", ".tsx", ".js", ".txt", ".example")):
             continue
         hits = find_secrets(git("show", f"HEAD:{path}").decode("utf-8", errors="replace"))
-        if hits and path != "scripts/check_submission.py":
+        if hits and path not in SELF_FILES:
             failures.append(f"possible secret in {path}: {hits}")
 
     sums = git("show", "HEAD:data/raw/SHA256SUMS").decode().replace("\r", "").splitlines()
