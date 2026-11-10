@@ -80,6 +80,10 @@ Error model: `409` for stale version or conflicting reservation; `403` for wrong
 | GET | `/simulation/results` | Latest policy comparison artefact (read-only) |
 | GET | `/components` | Enabled products (RBC, optional PLT, …) |
 
+### `GET /components` (pipeline contract, DG-08)
+
+`pipeline.eligibility.component_catalog(config)` returns one entry per product: `component`, `enabled_in_queue`, `shelf_life_days`, `min_remaining_hours_on_arrival`, `max_travel_hours`, `storage_range_c` and `storage_evidence_in_dataset`. Only RBC is enabled by default. When platelets are enabled, each platelet unit carries the warning `no_storage_evidence` in `warnings`, which the card must display.
+
 ### `GET /flags/cold-chain` (pipeline contract, DG-07)
 
 Built by `python -m pipeline build` into `dg_cold_chain_flags`. The backend can run `pipeline.coldchain.COLD_CHAIN_QUERY` as is, with optional `facility_id` and `unit_id` query parameters. Response rows:

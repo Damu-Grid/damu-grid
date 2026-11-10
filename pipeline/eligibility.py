@@ -107,7 +107,23 @@ def unit_eligibility(
     df["eligible"] = ~flags.any(axis=1)
     df["reasons"] = [tuple(names[row]) for row in flags]
     df["reason"] = np.where(df["eligible"], None, names[flags.argmax(axis=1)])
+    # Warnings do not exclude, but must be shown on the card: here, components whose storage the
+    # dataset cannot evidence (no temperature range, so no fridge log applies), e.g. platelets.
+    no_evidence = {c for c, p in config.components.items() if p.storage_max_c is None}
+    df["warnings"] = [("no_storage_evidence",) if c in no_evidence else () for c in df["component"]]
     return EligibilityResult(df)
+
+
+def component_catalog(config: PipelineConfig) -> list[dict]:
+    """Contract for GET /components (docs/API_SPEC.md): every product and how the queue treats it."""
+    return [
+        {"component": c, "enabled_in_queue": p.enabled_in_queue, "shelf_life_days": p.shelf_life_days,
+         "min_remaining_hours_on_arrival": p.min_remaining_hours_on_arrival,
+         "max_travel_hours": p.max_travel_hours,
+         "storage_range_c": None if p.storage_max_c is None else [p.storage_min_c, p.storage_max_c],
+         "storage_evidence_in_dataset": p.storage_max_c is not None}
+        for c, p in config.components.items()
+    ]
 
 
 @dataclass(frozen=True)

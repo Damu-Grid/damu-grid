@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from pipeline.config import PipelineConfig, load_config
-from pipeline.eligibility import check_move, shelf_life_check, unit_eligibility
+from pipeline.eligibility import check_move, component_catalog, shelf_life_check, unit_eligibility
 from pipeline.snapshot import build_snapshot
 
 CFG = PipelineConfig()
@@ -42,6 +42,21 @@ def test_rbc_default_scope_is_unchanged_by_platelet_settings(mini_tables):
     assert rbc(default) == rbc(with_plt)
     assert "U10" not in set(default.eligible["unit_id"])
     assert "U10" in set(with_plt.eligible["unit_id"])
+
+
+def test_platelets_carry_a_missing_evidence_warning(mini_tables):
+    snap = build_snapshot(mini_tables, CFG)
+    res = unit_eligibility(snap.units, CFG.with_components_enabled("PLT"), snap.as_of).units
+    res = res.set_index("unit_id")
+    assert res.loc["U10", "warnings"] == ("no_storage_evidence",)
+    assert res.loc["U2", "warnings"] == ()
+
+
+def test_component_catalog_for_the_api():
+    cat = {c["component"]: c for c in component_catalog(CFG)}
+    assert cat["RBC"]["enabled_in_queue"] and cat["RBC"]["storage_range_c"] == [2.0, 6.0]
+    assert not cat["PLT"]["enabled_in_queue"] and not cat["PLT"]["storage_evidence_in_dataset"]
+    assert cat["PLT"]["max_travel_hours"] == 6.0
 
 
 def test_platelets_have_a_tighter_routing_policy(mini_tables):
