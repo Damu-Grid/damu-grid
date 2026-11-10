@@ -4,7 +4,7 @@ FastAPI application: suggestion and action API, workflow state machine, audit st
 
 **Owner:** Timi (`drizzy765`). No team lead; this is an area, not a rank.
 
-**Status:** empty on purpose. All application code is written in the official window (Tue 10 Nov 2026, 12:00 EAT–Wed 11 Nov 2026, 12:00 EAT). Do not paste pre-window projects here.
+Application code is being built in the official window (Tue 10 Nov 2026, 12:00 EAT–Wed 11 Nov 2026, 12:00 EAT). Do not paste pre-window projects here.
 
 Intended shape (see `docs/ARCHITECTURE.md` and `docs/API_SPEC.md`):
 
@@ -13,4 +13,18 @@ Intended shape (see `docs/ARCHITECTURE.md` and `docs/API_SPEC.md`):
 - One suggestion object, one transactional action function
 - Demo roles only; no transfusion-release endpoint
 
-Entry points will be listed here once they exist (`uv run uvicorn ...`). Until then, do not invent a failing command in the root README.
+## Current API
+
+- `GET /health` is a liveness check.
+- `GET /snapshot` reports table counts when a processed SQLite store exists; it reports unavailable values as `null` otherwise.
+- `GET /suggestions` returns computed cards from an injected ranking provider, or `503 suggestions_not_ready`. It never serves frontend fixture cards as computed results.
+- LLM explanations use the configured live provider when enabled. A five-second timeout, rate limit, or other provider error leaves the deterministic reason in place.
+
+## Run
+
+```bash
+uv sync
+uv run uvicorn backend.app.main:app --reload --port 8000 --env-file .env
+```
+
+The ignored local `.env` enables the OpenAI-compatible provider. Set `OPENAI_API_KEY` in the shell before starting the server. Without that credential, explanations use the deterministic template. The processed pipeline store and ranking provider must be supplied before suggestions are available.

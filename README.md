@@ -43,6 +43,24 @@ uv run python -m simulation.compare
 
 The forecast command writes a row-level table, metrics JSON, and Markdown summary into ignored `data/processed/`. The split, models, upper-bound level, and simulation seeds are fixed in committed code. These commands use only the official synthetic CSVs.
 
+### Backend setup
+
+Copy `.env.example` to `.env`, set `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, and `LLM_BASE_URL` for a live explanation provider, then install and start the API:
+
+```bash
+uv sync
+uv run uvicorn backend.app.main:app --reload --port 8000 --env-file .env
+```
+
+The code default leaves LLM explanations disabled, so the API runs without a provider key and uses deterministic template text. The local demo `.env` enables the OpenAI-compatible provider. Keep the key in `.env` or the shell environment; never commit it. Docker Compose can start the local services with `docker compose up --build`.
+
+The backend exposes `GET /health`, `GET /snapshot`, and `GET /suggestions` for frontend integration. It also provides suggestion accept/change/reject, move dispatch/receive/quarantine, audit, settings, sync-queue, and simulated-alert routes. See [`docs/API_SPEC.md`](docs/API_SPEC.md) for the request and response contracts. Until the pipeline suggestion provider is connected, `/suggestions` reports unavailable inputs instead of returning fake computed cards.
+
+### Real integrations
+
+- The LLM explanation provider is a real live integration when enabled and configured. Calls time out after about five seconds and fall back to deterministic text on provider errors, timeouts, or rate limits.
+- SMS alerts are simulated and make no real contact.
+
 Step-by-step commands will be added once the packages exist. The intended shape:
 
 1. Copy `.env.example` to `.env` (no secrets in git).

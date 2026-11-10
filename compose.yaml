@@ -1,0 +1,27 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: sqlite:///./data/processed/damu_grid.sqlite
+      ACTION_DATABASE_URL: sqlite:///./data/processed/actions.sqlite
+      RESERVATION_LEASE_MINUTES: ${RESERVATION_LEASE_MINUTES:-30}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/processed:/opt/damu-grid/data/processed
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
