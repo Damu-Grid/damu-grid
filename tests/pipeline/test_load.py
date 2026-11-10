@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from pipeline.load import RAW_DIR, SchemaError, load_all, read_table
-from pipeline.schema import EXPECTED_ROWS
+from pipeline.load import RAW_DIR, SchemaError, dictionary_columns, load_all, read_table
+from pipeline.schema import EXPECTED_ROWS, TABLES
 
 FACILITIES = (
     "facility_id,name,facility_type,county,lat,lon,keph_level,beds,grid_reliability,connectivity,"
@@ -66,6 +66,27 @@ def test_raw_dir_is_not_modified(tmp_path):
     load_all(raw, ["facilities"])
     assert (raw / "facilities.csv").read_bytes() == before
     assert sorted(p.name for p in raw.iterdir()) == ["facilities.csv"]
+
+
+def test_every_problem_is_reported_in_one_run(tmp_path):
+    _write(tmp_path, "facilities", FACILITIES)
+    _write(tmp_path, "temperature_logs", LOGS_HEADER + "HSP-404,2026-01-01 00:00:00,4.0\n"
+                                                      "HSP-1,yesterday,warm\n")
+    _write(tmp_path, "routes", "from_facility_id,to_facility_id\nRBTC-A,HSP-1\n")
+    with pytest.raises(SchemaError) as err:
+        load_all(tmp_path, ["facilities", "temperature_logs", "routes"])
+    problems = " | ".join(err.value.problems)
+    assert len(err.value.problems) >= 3
+    assert "not datetime" in problems and "not float" in problems and "missing columns" in problems
+
+
+def test_schema_matches_the_official_data_dictionary():
+    if not (RAW_DIR / "DATA_DICTIONARY.md").exists():
+        pytest.skip("data dictionary not present")
+    documented = dictionary_columns()
+    assert set(documented) == set(TABLES)
+    for name, cols in TABLES.items():
+        assert documented[name] == list(cols), name
 
 
 @pytest.mark.dataset
