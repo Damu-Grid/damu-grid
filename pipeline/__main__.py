@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from pipeline.config import DEFAULT_CONFIG_PATH, load_config
+from pipeline.eligibility import active_reserved_units, unit_eligibility
 from pipeline.load import RAW_DIR, SchemaError, load_all
 from pipeline.snapshot import build_snapshot, write_snapshot
 from pipeline.store import DB_PATH, connect, create_schema, write_official
@@ -49,6 +50,11 @@ def main(argv: list[str] | None = None) -> int:
     snap = build_snapshot(tables, config)
     write_snapshot(conn, snap, config)
     print("\n".join(snap.summary_lines()))
+    elig = unit_eligibility(snap.units, config, snap.as_of, active_reserved_units(conn))
+    print(f"unit eligibility ({', '.join(config.enabled_components())} in the queue): "
+          f"{len(elig.eligible):,} eligible of {len(elig.units):,}")
+    for reason, n in elig.exclusion_counts().items():
+        print(f"  excluded, {reason}: {n:,}")
     print(f"database written to {args.db}")
     conn.close()
     return 0

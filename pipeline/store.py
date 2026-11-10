@@ -175,7 +175,21 @@ def _to_sql_frame(df: pd.DataFrame, name: str) -> pd.DataFrame:
 
 
 def write_official(conn: sqlite3.Connection, tables: dict[str, pd.DataFrame]) -> None:
-    """Replace the content of the official tables with the validated frames."""
+    """Replace the content of the official tables with the validated frames. Derived dg_ rows that
+    point at official rows (snapshot, moves, flags) are kept; foreign keys are checked after the reload
+    and any dangling reference fails the build."""
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        _replace_official(conn, tables)
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+    broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if broken:
+        raise sqlite3.IntegrityError(f"{len(broken)} references broken after reload, e.g. {broken[:3]}")
+
+
+def _replace_official(conn: sqlite3.Connection, tables: dict[str, pd.DataFrame]) -> None:
     for name, df in tables.items():
         frame = _to_sql_frame(df, name)
         conn.execute(f"DELETE FROM {name}")

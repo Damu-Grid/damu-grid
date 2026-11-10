@@ -89,6 +89,12 @@ A unit is eligible for a suggested transfer only if all of the following hold. S
 
 Historical `transfers` inform workload and optional policy comparison; they do not bypass eligibility.
 
+### Eligibility as implemented (`pipeline/eligibility.py`, measured 10 November 2026)
+
+Team defaults from `pipeline/settings/kenya_default.toml` (our choice, configurable, not a regulation): RBC must keep **168 hours (7 days)** of life after the expected arrival; expected arrival = as-of + `typical_travel_hours` + **6 hours** allowance; a unit is treated as expiring at 00:00 on its `expiry_date`; the sender keeps **2 units** of the same component and group by default (the forecast may pass a per-site reserve); the recipient must be one of the 32 hospitals with a gap supplied by the demand estimator or the fallback rule.
+
+Unit-level result on the closing snapshot: of **738 RBC** on the shelf, **637 are eligible**; 87 are excluded because `temp_excursion_exposed = True` and 17 because their last receipt was never confirmed (3 units have both). No RBC on the shelf has an unknown group. Eligible RBC: 406 at hospitals, 231 at regional centres. Each excluded unit carries every reason that applies (`reasons`), so the review screen and the judges can see why.
+
 ## Deliberate data-quality problems (official README)
 
 - About 450 donors (1%) are registered twice under different IDs.

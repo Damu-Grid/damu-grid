@@ -65,6 +65,15 @@ def test_earlier_as_of_is_refused(mini_tables):
         build_snapshot(mini_tables, july)
 
 
+def test_rebuild_over_an_existing_database_works(mini_tables, snap, tmp_path):
+    conn = sqlite3.connect(tmp_path / "db.sqlite")
+    for _ in range(2):
+        create_schema(conn)
+        write_official(conn, mini_tables)
+        write_snapshot(conn, snap, PipelineConfig())
+    assert conn.execute("SELECT COUNT(*) FROM dg_snapshot_units").fetchone()[0] == len(snap.units)
+
+
 def test_snapshot_is_written_with_as_of(mini_tables, snap):
     conn = sqlite3.connect(":memory:")
     create_schema(conn)
