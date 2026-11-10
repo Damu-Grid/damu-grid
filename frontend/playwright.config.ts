@@ -33,7 +33,7 @@ export default defineConfig({
       url: `http://localhost:${APP_PORT}/login`,
       env: {
         NEXT_PUBLIC_API_BASE_URL: `http://localhost:${MOCK_API_PORT}`,
-        NEXT_PUBLIC_BACKEND: "spec", // the mock follows docs/API_SPEC.md
+        NEXT_PUBLIC_BACKEND: "fastapi", // the mock mirrors backend/app (#51)
         NEXT_DIST_DIR: ".next-e2e", // never touch the developer's running `.next`
       },
       reuseExistingServer: false,

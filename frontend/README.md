@@ -26,11 +26,13 @@ The app talks to `/api/backend/*`, which Next.js relays to `BACKEND_URL` (defaul
 
 | Setting (in `frontend/.env.local`) | Default | Meaning |
 |---|---|---|
-| `NEXT_PUBLIC_BACKEND` | `prototype` | `prototype` = Blessings' `backend/prototype.py` (#50); `spec` = the contract in `docs/API_SPEC.md` (planned FastAPI) |
+| `NEXT_PUBLIC_BACKEND` | `prototype` | `prototype` = Blessings' `backend/prototype.py` (#50); `fastapi` (alias `spec`) = the team API in `backend/app` (#51), run with `uv run uvicorn backend.app.main:app --port 8000` |
 | `BACKEND_URL` | `http://127.0.0.1:8000` | Where the relay sends requests |
 | `NEXT_PUBLIC_API_BASE_URL` | `/api/backend` | Set a full URL only to bypass the relay (the backend must then allow CORS) |
 
 Both drivers live in `lib/api/backend.ts`; the screens do not change when the backend does.
+
+FastAPI differences the adapter handles: strict request bodies (`reason`, `unit_version`, `cold_chain_evidence_complete`); moves report `status`; blood group and expiry come from `GET /suggestions/{id}`; move lists are rebuilt from `/audit` until a `GET /moves?status=` list exists (the adapter tries it first); snapshot `table_counts` and a null `as_of`. On `main` today its `/suggestions` returns 503 (no ranking wired), and accept/change need the eligibility hooks connected; the app shows those 503s as "not available on the server yet".
 
 To run against the prototype: from the repo root (with `backend/prototype.py`), run `python backend/prototype.py`, then `pnpm dev` here. To reset its demo state, stop it and delete `data/processed/prototype.sqlite`.
 

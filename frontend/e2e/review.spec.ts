@@ -49,7 +49,7 @@ test("a conflicting accept shows a 409 message and does not reserve", async ({ p
   await dialog.getByRole("button", { name: "Accept and reserve" }).click();
 
   await expect(dialog.getByRole("alert")).toContainText("Conflict: this suggestion changed");
-  await expect(dialog.getByRole("alert")).toContainText("Unit version changed");
+  await expect(dialog.getByRole("alert")).toContainText("unit version is stale");
 });
 
 test("reject needs a reason from the list", async ({ page }) => {
@@ -65,7 +65,7 @@ test("reject needs a reason from the list", async ({ page }) => {
   await page.getByRole("option", { name: "Receiving hospital refused" }).click();
   await submit.click();
 
-  await expect(card.getByRole("status")).toContainText("Rejected: reason recorded");
+  await expect(page.getByRole("region", { name: "Decisions this session" }).getByRole("status")).toContainText("Rejected: reason recorded");
 });
 
 test("change requires a real difference, then submits", async ({ page }) => {
@@ -80,7 +80,7 @@ test("change requires a real difference, then submits", async ({ page }) => {
 
   await dialog.getByLabel("Destination facility ID").fill("MOCK-SITE-C");
   await submit.click();
-  await expect(card.getByRole("status")).toContainText("Changed: a revised suggestion");
+  await expect(page.getByRole("region", { name: "Decisions this session" }).getByRole("status")).toContainText("Changed: a revised suggestion");
 });
 
 test("model off shows fallback-rule cards", async ({ page }) => {

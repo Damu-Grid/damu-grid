@@ -183,7 +183,13 @@ function SnapshotSummary() {
         Stock snapshot
       </h2>
       <p className="text-sm">
-        Live queue built from stock as of <strong>{data.as_of}</strong>.
+        {data.as_of ? (
+          <>
+            Live queue built from stock as of <strong>{data.as_of}</strong>.
+          </>
+        ) : (
+          "The stock snapshot is not loaded on the server yet."
+        )}
       </p>
       {data.counts && (
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">

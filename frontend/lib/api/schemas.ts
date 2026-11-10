@@ -28,8 +28,8 @@ export const SuggestionSchema = z.object({
   from_facility_id: z.string(),
   to_facility_id: z.string(),
   // Facility names are not in the spec yet; shown when the API provides them.
-  from_facility_name: z.string().optional(),
-  to_facility_name: z.string().optional(),
+  from_facility_name: z.string().nullish(),
+  to_facility_name: z.string().nullish(),
   expiry_date: z.string(),
   typical_travel_hours: z.number().nullable(),
   sender_reserve_units: z.number().nullable(),
@@ -242,14 +242,17 @@ export const ForecastEvalSchema = z.union([
   ForecastMetricsFileSchema.transform(fromMetricsFile),
 ]);
 
+// Prototype: {as_of, counts}. FastAPI: {data_ready, as_of | null, table_counts | null}.
 export const SnapshotSchema = z
   .object({
-    as_of: z.string(),
+    as_of: z.string().nullable().optional(),
     product_scope: z.unknown().optional(),
-    counts: z.record(z.string(), z.number()).optional(),
+    counts: z.record(z.string(), z.number()).nullable().optional(),
+    table_counts: z.record(z.string(), z.number()).nullable().optional(),
   })
-  .passthrough();
-export type Snapshot = z.infer<typeof SnapshotSchema>;
+  .passthrough()
+  .transform((s) => ({ ...s, as_of: s.as_of ?? null, counts: s.counts ?? s.table_counts ?? undefined }));
+export type Snapshot = z.output<typeof SnapshotSchema>;
 
 export const ApiErrorBodySchema = z
   .object({

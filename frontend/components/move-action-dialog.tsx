@@ -180,7 +180,9 @@ export function MoveActionDialog({
                     ? "Not allowed"
                     : error.status === 422
                       ? "Blocked by the safety recheck"
-                      : "Could not submit"}
+                      : error.status === 503
+                        ? "Not available on the server yet"
+                        : "Could not submit"}
               </AlertTitle>
               <AlertDescription>{error.message}</AlertDescription>
             </Alert>
