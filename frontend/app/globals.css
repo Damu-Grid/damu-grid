@@ -86,7 +86,7 @@
   --blue-2: #8db3ee;
   --pale: #cfdcf3;
   --gold: #d4a23a;
-  --gold-ink: #a9781a;
+  --gold-ink: #8a6414; /* 4.6:1 on gold-soft (WCAG AA small text) */
   --gold-soft: #f6ecd6;
   --red: #cf4a3f;
   --green: #2f7d4f;
@@ -125,7 +125,7 @@
   --warn: var(--gold-soft);
   --warn-foreground: #8a6414;
   --ok: #e3f1e8;
-  --ok-foreground: var(--green);
+  --ok-foreground: #2a7047; /* 5.1:1 on the ok background */
   --fallback: #e2ebfa;
   --fallback-foreground: var(--navy);
 }

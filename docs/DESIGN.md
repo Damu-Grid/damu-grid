@@ -55,9 +55,9 @@ The visual reference is Blessings' platelet control-room demo: <https://blessing
 |---|---|---|
 | navy | `#12306b` | primary buttons, headings, active rail icon, fresh stock |
 | blue / blue-2 / pale | `#3f7ee0` / `#8db3ee` / `#cfdcf3` | links, focus, mid shelf life, empty ring |
-| gold / gold-ink / gold-soft | `#d4a23a` / `#a9781a` / `#f6ecd6` | **expiring**, synthetic pill |
+| gold / gold-ink / gold-soft | `#d4a23a` / `#8a6414` / `#f6ecd6` | **expiring**, synthetic pill |
 | red | `#cf4a3f` | critical, unmet, close to unusable |
-| green | `#2f7d4f` | received |
+| green | `#2f7d4f` (text on light green: `#2a7047`) | received |
 | ink / ink-2 / line / soft | `#0f2350` / `#4a5b7d` / `#e4eaf4` / `#f1f5fb` | text, secondary text, borders, hover |
 | background | gradient `#f5f8fd` → `#dce6f7` | page |
 | card | white 86% + blur, 16 px radius, soft navy shadow | every surface |
