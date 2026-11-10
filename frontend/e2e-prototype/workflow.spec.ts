@@ -35,6 +35,7 @@ test("real queue: accept → dispatch → receive, held for safety review", asyn
   await toReceive.getByRole("button", { name: "Confirm receipt" }).click();
   await page.getByRole("radio", { name: /Not sure/ }).check();
   await page.getByRole("dialog").getByRole("button", { name: "Confirm receipt" }).click();
+  await expect(page.getByText("held for the safety officer's review")).toBeVisible();
   await expect(toReceive).toHaveCount(0);
 
   await page.goto(`/moves/${moveId}`);

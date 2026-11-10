@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, newEventId } from "@/lib/api/client";
 import { useMoveAction } from "@/lib/api/hooks";
-import type { ColdChainEvidence, Move, MoveAction, Role } from "@/lib/api/schemas";
+import { stateKey, type ColdChainEvidence, type Move, type MoveAction, type Role } from "@/lib/api/schemas";
 import { DEMO_ACTORS } from "@/lib/session";
 
 const DISPATCH_CHECKS = [
@@ -79,7 +79,9 @@ export function MoveActionDialog({
           toast.success(
             action === "dispatch"
               ? "Dispatched. The receiving officer can now confirm arrival."
-              : `Receipt recorded.${updated.state ? ` State: ${updated.state}.` : ""}`,
+              : updated.state && stateKey(updated.state) === "receivedheld"
+                ? "Receipt recorded. The units are held for the safety officer's review."
+                : "Receipt recorded. The units are in your stock (not released for transfusion).",
           );
           onOpenChange(false);
         },

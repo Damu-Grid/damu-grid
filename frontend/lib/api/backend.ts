@@ -168,7 +168,7 @@ function toMove(m: ProtoMove, rows: ProtoAuditRow[]): Move {
   return MoveSchema.parse({
     move_id: m.id,
     state: normaliseState(m.state, rows),
-    component: unit?.component ?? "RBC",
+    component: unit?.component ?? "(component not reported)",
     blood_group: unit?.blood_group ?? "(group not reported)",
     unit_ids: [m.unit_id],
     from_facility_id: m.origin,
@@ -229,9 +229,9 @@ const prototypeBackend: Backend = {
     return toMove(m, eventsFor(audit, moveId));
   },
 
-  moveAction: (action, m, input) => {
+  async moveAction(action, m, input) {
     const temp = input.coolbox_max_temp_c;
-    return apiFetch(
+    const result = await apiFetch(
       `/${action}`,
       ActionResultSchema,
       post({
@@ -248,6 +248,12 @@ const prototypeBackend: Backend = {
         }),
       }),
     );
+    // The prototype reports a doubtful receipt as state "received" plus
+    // safety "unknown"; the screens call that a hold, never a clean receipt.
+    if (result.state === "received" && result.safety !== "cleared") {
+      return { ...result, state: "received_held" };
+    }
+    return result;
   },
 };
 
