@@ -22,7 +22,11 @@ test("accept → dispatch → receive, with the audit trail", async ({ page }) =
   await card.getByRole("button", { name: "Accept" }).click();
   await page.getByLabel("Reason (required)").fill("Recipient can receive today");
   await page.getByRole("button", { name: "Accept and reserve" }).click();
-  await expect(page.getByRole("link", { name: "Move MOVE-MOCK-1" })).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Decisions this session" })
+      .getByRole("link", { name: "Move MOVE-MOCK-1" }),
+  ).toBeVisible();
 
   // Sender rechecks and dispatches.
   await signInAs(page, /sending officer/i);

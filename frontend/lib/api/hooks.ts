@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiFetch } from "./client";
 import {
   ActionResultSchema,
+  ForecastEvalSchema,
   MoveListSchema,
   MoveSchema,
   SnapshotSchema,
@@ -55,6 +56,14 @@ export function useSuggestions(policy: Policy) {
   return useQuery({
     queryKey: ["suggestions", policy],
     queryFn: () => apiFetch(`/suggestions?policy=${policy}`, SuggestionListSchema),
+  });
+}
+
+export function useForecastEval() {
+  return useQuery({
+    queryKey: ["evaluation", "forecast"],
+    queryFn: () => apiFetch("/evaluation/forecast", ForecastEvalSchema),
+    staleTime: 5 * 60_000, // frozen results; rarely change
   });
 }
 

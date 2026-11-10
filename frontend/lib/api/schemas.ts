@@ -149,9 +149,47 @@ export function stateKey(state: string): string {
   return state.toLowerCase().replace(/[^a-z]/g, "");
 }
 
+// GET /evaluation/forecast (docs/EVALUATION.md): frozen 28-day baseline vs the
+// pooled candidate. RMSE is primary; MAE, n and coverage are shown beside it.
+export const EvalRowSchema = z
+  .object({
+    model: z.string(), // e.g. "baseline_28d", "pooled_candidate"
+    label: z.string().optional(),
+    horizon_days: z.number(),
+    group: z.string().default("all"), // "all" or a blood group such as "O-"
+    rmse: z.number().nullable(),
+    mae: z.number().nullable(),
+    n: z.number().nullable(),
+    coverage: z.number().nullable().optional(),
+    nominal_level: z.number().nullable().optional(),
+  })
+  .passthrough();
+export type EvalRow = z.infer<typeof EvalRowSchema>;
+
+export const ForecastEvalSchema = z
+  .object({
+    computed_at: z.string().optional(),
+    split: z
+      .object({
+        learn: z.tuple([z.string(), z.string()]).optional(),
+        calibrate: z.tuple([z.string(), z.string()]).optional(),
+        evaluate: z.tuple([z.string(), z.string()]).optional(),
+      })
+      .partial()
+      .optional(),
+    rows: z.array(EvalRowSchema),
+    excluded_unknown_group_rows: z.number().optional(),
+    operational_model: z.string().optional(),
+    notes: z.array(z.string()).default([]),
+  })
+  .passthrough();
+export type ForecastEval = z.infer<typeof ForecastEvalSchema>;
+
 export const SnapshotSchema = z
   .object({
     as_of: z.string(),
+    product_scope: z.unknown().optional(),
+    counts: z.record(z.string(), z.number()).optional(),
   })
   .passthrough();
 export type Snapshot = z.infer<typeof SnapshotSchema>;
