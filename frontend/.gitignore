@@ -48,3 +48,4 @@ next-env.d.ts
 # alternate build folders (tests, build checks)
 /.next-e2e/
 /.next-check/
+/.next-e2e-proto/

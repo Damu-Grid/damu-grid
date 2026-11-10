@@ -14,14 +14,14 @@ export type Policy = z.infer<typeof PolicySchema>;
 
 export const UncertaintySchema = z.object({
   method: z.string(),
-  nominal_level: z.number().nullable(),
+  nominal_level: z.number().nullable().default(null),
   label: z.string(),
 });
 
 export const SuggestionSchema = z.object({
   suggestion_id: z.string(),
   as_of: z.string(),
-  data_age_hours: z.number().nullable(),
+  data_age_hours: z.number().nullable().default(null), // not sent by the prototype
   component: z.string(),
   blood_group: z.string(),
   unit_ids: z.array(z.string()),
@@ -44,13 +44,20 @@ export const SuggestionSchema = z.object({
   fallback: z.boolean(),
   eligibility_ok: z.boolean(),
   warnings: z.array(z.string()),
+  // Sent by the prototype backend; needed for its optimistic version check.
+  unit_version: z.number().optional(),
 });
-export type Suggestion = z.infer<typeof SuggestionSchema>;
+export type Suggestion = z.output<typeof SuggestionSchema>;
 
-// The list shape is not fixed in the spec yet: accept a bare array or {items: [...]}.
+// The list shape is not fixed in the spec yet: accept a bare array,
+// {items: [...]} or the prototype's {suggestions: [...]}.
 export const SuggestionListSchema = z
-  .union([z.array(SuggestionSchema), z.object({ items: z.array(SuggestionSchema) })])
-  .transform((v) => (Array.isArray(v) ? v : v.items));
+  .union([
+    z.array(SuggestionSchema),
+    z.object({ items: z.array(SuggestionSchema) }),
+    z.object({ suggestions: z.array(SuggestionSchema) }),
+  ])
+  .transform((v) => (Array.isArray(v) ? v : "items" in v ? v.items : v.suggestions));
 
 // Coordinator actions (docs/API_SPEC.md): bodies carry actor_id, role, reason,
 // an event_id for idempotency and, when known, a unit_version. Server sets time.
@@ -63,17 +70,6 @@ export const REJECT_REASONS = [
   "Data looks wrong",
   "Other",
 ] as const;
-
-export type ActionBody = {
-  event_id: string;
-  actor_id: string;
-  role: Role;
-  reason: string;
-  unit_version?: number;
-  // Change only: a revised destination and/or a subset of the units.
-  to_facility_id?: string;
-  unit_ids?: string[];
-};
 
 // The response shape is not fixed in the spec yet; keep what the API sends.
 export const ActionResultSchema = z
@@ -133,17 +129,6 @@ export type MoveAction = (typeof MOVE_ACTIONS)[number];
 // "ok" must leave the units held for the safety officer; receipt never clears it.
 export const COLD_CHAIN_EVIDENCE = ["ok", "excursion", "unknown"] as const;
 export type ColdChainEvidence = (typeof COLD_CHAIN_EVIDENCE)[number];
-
-export type MoveActionBody = {
-  event_id: string;
-  actor_id: string;
-  role: Role;
-  version?: number;
-  note?: string;
-  // Receive only.
-  cold_chain_evidence?: ColdChainEvidence;
-  coolbox_max_temp_c?: number | null;
-};
 
 export function stateKey(state: string): string {
   return state.toLowerCase().replace(/[^a-z]/g, "");
@@ -270,6 +255,7 @@ export const ApiErrorBodySchema = z
   .object({
     code: z.string().optional(),
     message: z.string().optional(),
+    error: z.string().optional(), // prototype backend
     detail: z.unknown().optional(),
   })
   .passthrough();
