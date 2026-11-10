@@ -8,6 +8,8 @@ This README follows the official hackathon README template. Results and links wi
 
 Planning docs for teammates and AI coding agents are in `docs/` and `AGENTS.md`.
 
+Submission readiness: [DG-39 blocker register, rehearsal and freeze checklist](docs/DEMO_AND_SUBMISSION.md#dg-39-readiness-record). The inspected foundation has no application implementation yet; the checklist records missing evidence rather than claiming readiness.
+
 ## The problem
 
 The primary user is a **regional stock coordinator** at a regional blood transfusion centre. Today that person must reconcile stock reports, see which hospitals are short, find units that will expire unused, and arrange a transfer. Sending and receiving officers must then agree on what actually left and arrived.
@@ -43,7 +45,7 @@ Judges should assume a laptop and about 10 minutes. A Docker Compose path is a T
 
 ## Architecture
 
-A diagram will be added at `docs/architecture.png` (or SVG) during the window. The intended flow is documented with mermaid in `docs/ARCHITECTURE.md`:
+The planned architecture and workflow diagrams are already available as Mermaid in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). They describe the intended design; implementation alignment still needs review:
 
 Official CSVs → validation and local SQLite → demand estimator and rule fallback → eligibility engine → review screen → reservation / dispatch / receipt and audit.
 
@@ -72,7 +74,7 @@ Facilities in the starter data include `grid_reliability`, `connectivity` (2G / 
 
 ## AI tools we used
 
-To be filled during the window. Tool, and what we used it for. Write "None" if none. Using AI does not cost points; hiding it, or submitting work the team cannot explain, will. Planned tools include Cursor, Claude, Codex or similar assistants for coding, plus an optional LLM API for explanation text. Each use will be listed here.
+OpenAI Codex was used on 10 November 2026 to inspect GitHub issue #40 and its dependencies, review the repository and supplied proposal, and prepare the submission blocker register, rehearsal evidence record and freeze checklist. No application implementation or benchmark result is claimed by this documentation change. The team must add any other tools actually used and review and explain submitted work.
 
 ## Team
 
