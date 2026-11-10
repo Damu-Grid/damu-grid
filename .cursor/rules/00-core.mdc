@@ -1,0 +1,15 @@
+---
+description: Core Damu Grid rules for every Cursor session
+alwaysApply: true
+---
+
+Read `AGENTS.md` before writing or editing code.
+
+- All submitted code is written in the official window (Tue 10 Nov 2026 12:00 EAT to Wed 11 Nov 2026 12:00 EAT). Do not paste pre-hackathon project code into this repo.
+- Do not modify `data/raw/`. Cite `data/raw/DATA_DICTIONARY.md`.
+- Do not commit secrets or `.env` files.
+- Do not invent dataset facts, metrics, or clinical claims. Label synthetic results. Never claim transfusion release or compatibility decisions.
+- Do not present starter-data findings as facts about real Kenyan facilities.
+- Recompute evaluation numbers in-window. Do not reuse unverified pitch figures.
+- Prefer the contracts in `docs/API_SPEC.md` and the state machine in `docs/ARCHITECTURE.md`.
+- Commit incrementally. Do not push, open GitHub issues, or contact people unless a human approved that specific action.

@@ -1,0 +1,7 @@
+---
+description: Backend, API, and workflow state machine conventions
+globs: backend/**/*,docs/API_SPEC.md,docs/ARCHITECTURE.md
+alwaysApply: false
+---
+
+Timi (`drizzy765`) is the primary owner of `backend/`. Keep recommendation logic separate from physical movement records. One transactional action function validates state and writes the decision plus audit row. FastAPI + SQLModel/SQLAlchemy + SQLite for the action store. LLM explanations must be grounded in API numbers, with a deterministic fallback when the LLM is off or fails. No transfusion-release endpoint.

@@ -1,0 +1,7 @@
+---
+description: Frontend, map, and UX conventions
+globs: frontend/**/*,docs/DESIGN.md,slides/**/*
+alwaysApply: false
+---
+
+Dan (`Dan-Boumba`) is the primary owner of `frontend/` and slide/demo packaging. Use Next.js, TypeScript, shadcn/ui, and accessible, low-bandwidth layouts. Show data age, uncertainty, and Accept / Change / Reject on every recommendation card. Do not hide fallback or safety blocks. Map tiles must follow OpenStreetMap attribution. Offline actions stay pending until reconciled. Demo content must use real computed IDs from the official data, labelled synthetic, never invented facilities presented as real.

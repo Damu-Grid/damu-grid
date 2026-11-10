@@ -1,0 +1,7 @@
+---
+description: ETL, schema, eligibility, and cold-chain conventions
+globs: pipeline/**/*,data/processed/**/*,docs/DATA.md
+alwaysApply: false
+---
+
+Brayan (`Sorghobrayan-dotcom`) is the primary owner of `pipeline/`. Use official column names from `data/raw/DATA_DICTIONARY.md`. Use `facility_id`, not `facility_name_raw`. Derive demand from `requests.units_requested`, not `units_issued`. `daily_stock` is inventory. Treat missing `received_at`, unknown blood groups, temperature glitches (-99.0, 99.9, 0.0) and logger gaps conservatively. Eligibility must exclude expired, exposed, unavailable, or unresolved units. Do not reconstruct historical stock from final unit locations.
