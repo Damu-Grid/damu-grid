@@ -22,7 +22,7 @@ pnpm dev          # http://localhost:3000
 
 The API base URL comes from `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`, see the root `.env.example`).
 
-Checks: `pnpm lint`, `pnpm typecheck`, `pnpm build`.
+Checks: `pnpm lint`, `pnpm typecheck`, `pnpm build:check`. Use `build:check` (it builds into `.next-check/`) while `pnpm dev` is running: a plain `pnpm build` overwrites `.next/` and makes the dev server return Internal Server Error until restarted. The e2e tests build into `.next-e2e/` for the same reason.
 
 End-to-end tests: `pnpm test:e2e`. Playwright starts a **test-only mock API** (`e2e/mock-api.mjs`, fake `MOCK-…` data following `docs/API_SPEC.md`) and the app, then drives accept / change / reject, a 409 conflict, model-off, role limits and the API-down banner. Locally it uses the installed Microsoft Edge; elsewhere run `pnpm exec playwright install chromium` and set `PW_CHANNEL=chromium`.
 

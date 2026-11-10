@@ -44,3 +44,7 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 /blob-report/
+
+# alternate build folders (tests, build checks)
+/.next-e2e/
+/.next-check/

@@ -31,7 +31,10 @@ export default defineConfig({
     {
       command: `pnpm exec next dev --turbopack -p ${APP_PORT}`,
       url: `http://localhost:${APP_PORT}/login`,
-      env: { NEXT_PUBLIC_API_BASE_URL: `http://localhost:${MOCK_API_PORT}` },
+      env: {
+        NEXT_PUBLIC_API_BASE_URL: `http://localhost:${MOCK_API_PORT}`,
+        NEXT_DIST_DIR: ".next-e2e", // never touch the developer's running `.next`
+      },
       reuseExistingServer: false,
       timeout: 120_000,
     },
