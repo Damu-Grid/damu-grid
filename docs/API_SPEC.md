@@ -80,6 +80,29 @@ Error model: `409` for stale version or conflicting reservation; `403` for wrong
 | GET | `/simulation/results` | Latest policy comparison artefact (read-only) |
 | GET | `/components` | Enabled products (RBC, optional PLT, …) |
 
+### `GET /flags/cold-chain` (pipeline contract, DG-07)
+
+Built by `python -m pipeline build` into `dg_cold_chain_flags`. The backend can run `pipeline.coldchain.COLD_CHAIN_QUERY` as is, with optional `facility_id` and `unit_id` query parameters. Response rows:
+
+```json
+{
+  "flag_id": "unit-000123",
+  "flag_type": "fridge_excursion",
+  "scope": "unit",
+  "facility_id": "HSP-001",
+  "unit_id": "U2610-...-RBC",
+  "evidence_at": "2026-10-25 02:00:00",
+  "end_at": "2026-10-25 05:00:00",
+  "value": 7.5,
+  "source_table": "temperature_logs",
+  "source_ref": null,
+  "blocks_suggestion": true,
+  "note": "while on this shelf: 3 consecutive hourly readings outside 2-6 C, peak 7.5 C"
+}
+```
+
+`flag_type` is one of `fridge_excursion`, `outage_no_backup`, `logger_gap`, `coolbox_excursion`, `receipt_unconfirmed`, `official_exposure` (and `sensor_glitch`, which the query leaves out because it is never a clinical event). Timestamps are EAT, as in the official data. `value` is the peak temperature, the outage hours or the missing hours. A flag can only add caution: no endpoint may use the absence of a flag to declare a unit safe or to clear a quarantine.
+
 ## Idempotency
 
 Every write accepts an `event_id`. Repeating the same `event_id` with the same payload returns the original result. Conflicting payloads with a reused `event_id` fail.

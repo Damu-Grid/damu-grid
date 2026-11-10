@@ -93,7 +93,7 @@ Historical `transfers` inform workload and optional policy comparison; they do n
 
 Team defaults from `pipeline/settings/kenya_default.toml` (our choice, configurable, not a regulation): RBC must keep **168 hours (7 days)** of life after the expected arrival; expected arrival = as-of + `typical_travel_hours` + **6 hours** allowance; a unit is treated as expiring at 00:00 on its `expiry_date`; the sender keeps **2 units** of the same component and group by default (the forecast may pass a per-site reserve); the recipient must be one of the 32 hospitals with a gap supplied by the demand estimator or the fallback rule.
 
-Unit-level result on the closing snapshot: of **738 RBC** on the shelf, **637 are eligible**; 87 are excluded because `temp_excursion_exposed = True` and 17 because their last receipt was never confirmed (3 units have both). No RBC on the shelf has an unknown group. Eligible RBC: 406 at hospitals, 231 at regional centres. Each excluded unit carries every reason that applies (`reasons`), so the review screen and the judges can see why.
+Unit-level result on the closing snapshot, before cold-chain flags: of **738 RBC** on the shelf, **637 are eligible**; 87 are excluded because `temp_excursion_exposed = True` and 17 because their last receipt was never confirmed (3 units have both). With the DG-07 cold-chain flags, **598** remain eligible (see below). No RBC on the shelf has an unknown group. Eligible RBC: 406 at hospitals, 231 at regional centres. Each excluded unit carries every reason that applies (`reasons`), so the review screen and the judges can see why.
 
 ## Deliberate data-quality problems (official README)
 
@@ -122,6 +122,21 @@ Shelf lives in the model (dataset README): red cells 42 days, whole blood 35, pl
 | Logger drop-outs | 370 silences of 6 hours or more, 12,191 missing hours in total | Reported as missing evidence (DG-07), never as "no problem" |
 | Donor duplicates | 452 sets, 904 records sharing birth date, sex, county and phone last 4 | Listed for review, never merged automatically |
 | Donors with no group | 506 (1.2%) | Kept missing |
+
+### Cold-chain flags (`pipeline/coldchain.py`, DG-07, measured 10 November 2026)
+
+Team defaults: an excursion is at least **2 consecutive hourly readings** outside 2–6 °C (glitches and gaps break a run); a logger gap is **6 hours** or more without a reading; an outage counts if it lasts **1 hour** or more with no backup on the blood fridge; a cool box above **10 °C** is an excursion (data dictionary). Fridge evidence is attached only to components kept in the blood fridge (RBC, WB); the dataset has no storage evidence for platelets or frozen plasma.
+
+| Evidence | Sites (events) | RBC on the shelf at as-of (units) |
+|---|---:|---:|
+| Fridge excursion | 553 | 29 |
+| Outage without backup | 1,017 | 49 |
+| Logger gap | 370 | 17 |
+| Cool-box excursion | — | 0 |
+| Official `temp_excursion_exposed` | — | 87 |
+| Receipt unconfirmed | — | 17 |
+
+A site event is attached to a unit only if it happened while the unit was on that shelf. With these flags, **598 of 738 RBC** remain eligible. **39 RBC** have evidence of an excursion, an outage without backup or a logger gap during their time on the shelf although the official exposure flag is `False`; they are held back for review, not declared unsafe.
 
 ## Redistribution starting tables
 

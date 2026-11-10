@@ -11,6 +11,9 @@ import json
 import sys
 from pathlib import Path
 
+import pandas as pd
+
+from pipeline.coldchain import site_flags, unit_flags, write_flags
 from pipeline.config import DEFAULT_CONFIG_PATH, load_config
 from pipeline.eligibility import active_reserved_units, unit_eligibility
 from pipeline.load import RAW_DIR, SchemaError, load_all
@@ -54,7 +57,12 @@ def main(argv: list[str] | None = None) -> int:
     snap = build_snapshot(tables, config)
     write_snapshot(conn, snap, config)
     print("\n".join(snap.summary_lines()))
-    elig = unit_eligibility(snap.units, config, snap.as_of, active_reserved_units(conn))
+    sites = site_flags(tables, config)
+    flags = unit_flags(snap.units, tables, config, snap.as_of, sites)
+    write_flags(conn, pd.concat([sites, flags], ignore_index=True))
+    print("cold-chain flags: sites " + str(sites["flag_type"].value_counts().to_dict())
+          + ", units " + str(flags.groupby("flag_type")["unit_id"].nunique().to_dict()))
+    elig = unit_eligibility(snap.units, config, snap.as_of, active_reserved_units(conn), flags)
     print(f"unit eligibility ({', '.join(config.enabled_components())} in the queue): "
           f"{len(elig.eligible):,} eligible of {len(elig.units):,}")
     for reason, n in elig.exclusion_counts().items():
