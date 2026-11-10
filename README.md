@@ -4,9 +4,11 @@ Terumo BCT Africa Hackathon 2026 · Challenge area: redistribution
 
 Damu Grid helps a regional stock coordinator decide which eligible red-cell units can be spared at one site and used at a site that is running short, before they expire. A person Accepts, Changes or Rejects every recommendation. Sending and receiving officers then confirm dispatch and receipt. The workflow still works if the forecasting model is offline.
 
-This README follows the official hackathon README template. Results and links will be filled during the 24-hour window. **All application code will be written between Tuesday 10 November 2026, 12:00 EAT and Wednesday 11 November 2026, 12:00 EAT.** This repository currently contains planning documents, issue drafts, and the official starter dataset only. There is no pre-written application code.
+This README follows the official hackathon README template. **All application code will be written between Tuesday 10 November 2026, 12:00 EAT and Wednesday 11 November 2026, 12:00 EAT.** This repository contains planning material, the official starter dataset, and application code built during the hackathon window.
 
 Planning docs for teammates and AI coding agents are in `docs/` and `AGENTS.md`.
+
+The [expanded solution integration brief](docs/EXPANDED_SOLUTION_INTEGRATION.md) maps the strongest local research ideas to the current branches, safety gates and evidence still required before any wider claim reaches the demo.
 
 ## The problem
 
@@ -23,9 +25,9 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 
 ## What we built
 
-- What works now: planning documents, official dataset in `data/raw/`, and the intended architecture in `docs/`. Application features will be checked off here as they land in the window.
+- What works now: the FastAPI health, snapshot, and suggestions endpoints; the human review workflow; the append-only audit trail; and the synthetic forecasting evaluation harness. When the processed store or ranking provider is unavailable, `/suggestions` reports that state instead of returning fake computed cards.
   - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (598 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags checked against the official exposure flag (87 of 87 exposed red cells found), with its own automated tests.
-- What is mocked or not finished: the working prototype, baseline numbers, UI, demo video and slides are to be built in the window. Tier 2 items are listed in `docs/IMPLEMENTATION_PLAN.md`.
+- What remains in progress: connecting the pipeline ranking provider and completing the demo video and slides. Tier 2 items are tracked in `docs/IMPLEMENTATION_PLAN.md`.
 
 Demo video (3 minutes or less): [link to be added]
 Live demo: [link] · Test log-in: [user / password to be added]
@@ -49,7 +51,25 @@ uv run ruff check .
 
 The forecast command writes a row-level table, metrics JSON, and Markdown summary into ignored `data/processed/`. The split, models, upper-bound level, and simulation seeds are fixed in committed code. These commands use only the official synthetic CSVs.
 
-Remaining steps, to be completed as the other packages land:
+### Backend setup
+
+Copy `.env.example` to `.env`, set `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, and `LLM_BASE_URL` for a live explanation provider, then install and start the API:
+
+```bash
+uv sync
+uv run uvicorn backend.app.main:app --reload --port 8000 --env-file .env
+```
+
+Live explanations require `LLM_ENABLED=true`, `LLM_MODEL`, and `LLM_API_KEY` in `.env`. Set `LLM_PROVIDER` and `LLM_BASE_URL` when using a provider other than the OpenAI-compatible defaults. The checked-in `.env.example` leaves the LLM values blank. With explanations disabled or unconfigured, the API uses deterministic template text. Keep the key in `.env` or the shell environment; never commit it. Docker Compose can start the local services with `docker compose up --build`.
+
+The backend exposes `GET /health`, `GET /snapshot`, and `GET /suggestions` for frontend integration. It also provides suggestion accept/change/reject, move dispatch/receive/quarantine, audit, settings, sync-queue, and simulated-alert routes. See [`docs/API_SPEC.md`](docs/API_SPEC.md) for the request and response contracts. Until the pipeline suggestion provider is connected, `/suggestions` reports unavailable inputs instead of returning fake computed cards.
+
+### Real integrations
+
+- The LLM explanation provider is a real live integration when enabled and configured. Calls time out after about five seconds and fall back to deterministic text on provider errors, timeouts, or rate limits.
+- SMS alerts are simulated and make no real contact.
+
+The full demo setup follows this outline:
 
 1. Copy `.env.example` to `.env` (no secrets in git).
 2. Install frontend deps with `pnpm` (see `frontend/README.md`).

@@ -100,9 +100,9 @@ export function ActionDialog({
     if (!canSubmit) return;
     mutation.mutate(
       {
-        suggestionId: s.suggestion_id,
+        suggestion: s,
         action,
-        body: {
+        input: {
           event_id: eventId,
           actor_id: DEMO_ACTORS[role].actorId,
           role,

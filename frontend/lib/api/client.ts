@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { ApiErrorBodySchema } from "./schemas";
 
+// Default: same-origin path that next.config.ts relays to BACKEND_URL, so the
+// backend needs no CORS headers. Set a full URL to call a backend directly.
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "/api/backend";
 
 // Status codes from docs/API_SPEC.md "Error model".
 const STATUS_MESSAGES: Record<number, string> = {
@@ -47,11 +49,15 @@ export async function apiFetch<T>(
   const body: unknown = await res.json().catch(() => null);
 
   if (!res.ok) {
+    // The relay answers a non-JSON 5xx when the backend process is not running.
+    if (body === null && res.status >= 500) {
+      throw new ApiError(0, `Cannot reach the Damu Grid backend (${API_BASE_URL}). Is it running?`);
+    }
     const parsed = ApiErrorBodySchema.safeParse(body);
     const err = parsed.success ? parsed.data : {};
     throw new ApiError(
       res.status,
-      err.message ?? STATUS_MESSAGES[res.status] ?? `Request failed (${res.status}).`,
+      err.message ?? err.error ?? STATUS_MESSAGES[res.status] ?? `Request failed (${res.status}).`,
       err.code,
       err.detail,
     );
@@ -59,9 +65,14 @@ export async function apiFetch<T>(
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
+    const fields = [
+      ...new Set(parsed.error.issues.map((i) => i.path.filter((p) => typeof p === "string").join("."))),
+    ]
+      .filter(Boolean)
+      .slice(0, 3);
     throw new ApiError(
       res.status,
-      "The API response does not match docs/API_SPEC.md.",
+      `The API response does not match the expected contract${fields.length ? ` (check: ${fields.join(", ")})` : ""}.`,
       "contract_mismatch",
       parsed.error.flatten(),
     );
