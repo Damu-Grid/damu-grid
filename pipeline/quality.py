@@ -15,22 +15,58 @@ import pandas as pd
 
 from pipeline.config import PipelineConfig
 
+# Abbreviations seen in requests.facility_name_raw, expanded before comparing names.
+ABBREVIATIONS = {"crh": "county referral hospital", "hosp": "hospital"}
+
 
 def _normalise_name(s: pd.Series) -> pd.Series:
     return s.str.lower().str.replace(r"[^a-z0-9]+", " ", regex=True).str.strip()
 
 
+def _expand(name: str) -> str:
+    return " ".join(ABBREVIATIONS.get(w, w) for w in name.split())
+
+
 def requests_with_facility_check(requests: pd.DataFrame, facilities: pd.DataFrame) -> pd.DataFrame:
-    """Add `facility_name` (official) and `name_variant`: exact, case_or_spacing, or other.
-    The key stays `facility_id`; the typed name is never used for joins."""
+    """Add `facility_name` (official) and `name_variant`:
+
+    - exact            typed name equals the official name
+    - case_or_spacing  equal after lower-casing and removing punctuation
+    - abbreviation     equal after expanding CRH and Hosp.
+    - ambiguous        the typed name fits several facilities (e.g. "National Referral Hospital")
+    - mismatch         the typed name fits another facility better than the recorded `facility_id`
+    - unmatched        no facility name fits
+
+    The key stays `facility_id`; the typed name is never used for joins. `ambiguous` and `mismatch`
+    rows are worth a human look because a phone-in request could have been booked to the wrong site."""
     official = facilities.set_index("facility_id")["name"]
     out = requests.copy()
     out["facility_name"] = out["facility_id"].map(official)
-    raw, ref = out["facility_name_raw"].fillna(""), out["facility_name"].fillna("")
-    variant = pd.Series("other", index=out.index, dtype="string")
-    variant[_normalise_name(raw) == _normalise_name(ref)] = "case_or_spacing"
-    variant[raw == ref] = "exact"
-    out["name_variant"] = variant
+    norm_off = {fid: _expand(n) for fid, n in _normalise_name(official.astype("string")).items()}
+
+    def classify(raw: str, ref: str, fid: str) -> str:
+        if raw == ref:
+            return "exact"
+        n = _normalise_name(pd.Series([raw])).iloc[0]
+        if n == _normalise_name(pd.Series([ref])).iloc[0]:
+            return "case_or_spacing"
+        e = _expand(n)
+        if e == norm_off.get(fid):
+            return "abbreviation"
+        fits = [f for f, name in norm_off.items() if e and (e == name or name.startswith(e + " "))]
+        if len(fits) > 1 and fid in fits:
+            return "ambiguous"
+        if fits and fid not in fits:
+            return "mismatch"
+        if fid in fits:
+            return "abbreviation"
+        return "unmatched"
+
+    pairs = out[["facility_name_raw", "facility_name", "facility_id"]].fillna("").drop_duplicates()
+    lookup = {tuple(p): classify(*p) for p in pairs.itertuples(index=False, name=None)}
+    keys = zip(out["facility_name_raw"].fillna(""), out["facility_name"].fillna(""),
+               out["facility_id"].fillna(""), strict=True)
+    out["name_variant"] = pd.Series([lookup[k] for k in keys], index=out.index, dtype="string")
     out["patient_group_known"] = out["patient_blood_group"].ne("unknown") & out["patient_blood_group"].notna()
     return out
 
@@ -86,8 +122,8 @@ def quality_report(tables: dict[str, pd.DataFrame], config: PipelineConfig) -> d
         r = requests_with_facility_check(tables["requests"], tables["facilities"])
         out["requests"] = len(r)
         out["requests_name_not_exact"] = int((r["name_variant"] != "exact").sum())
-        out["requests_name_case_or_spacing"] = int((r["name_variant"] == "case_or_spacing").sum())
-        out["requests_name_other_variant"] = int((r["name_variant"] == "other").sum())
+        for variant in ("case_or_spacing", "abbreviation", "ambiguous", "mismatch", "unmatched"):
+            out[f"requests_name_{variant}"] = int((r["name_variant"] == variant).sum())
         em = r[r["urgency"] == "emergency"]
         out["emergency_requests"] = len(em)
         out["emergency_requests_group_unknown"] = int((~em["patient_group_known"]).sum())

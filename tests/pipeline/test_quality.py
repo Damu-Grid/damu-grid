@@ -22,9 +22,28 @@ def test_requests_are_keyed_by_facility_id(mini_tables):
     r = r.set_index("request_id")
     assert r.loc["R2", "facility_id"] == "HSP-1"            # typed "HOSPITAL  ONE"
     assert r.loc["R2", "name_variant"] == "case_or_spacing"
-    assert r.loc["R3", "name_variant"] == "other"           # "Hosp. Two"
+    assert r.loc["R3", "name_variant"] == "abbreviation"    # "Hosp. Two"
     assert r.loc["R1", "name_variant"] == "exact"
     assert r.loc["R2", "facility_name_raw"] == "HOSPITAL  ONE"  # original text kept as typed
+
+
+def test_ambiguous_and_wrong_site_names_are_flagged():
+    facilities = pd.DataFrame({
+        "facility_id": ["HSP-A", "HSP-B", "HSP-C"],
+        "name": ["Kisumu County Referral Hospital", "Kisumu County Referral Hospital Annex",
+                 "Busia County Referral Hospital"],
+    })
+    requests = pd.DataFrame({
+        "request_id": ["R1", "R2", "R3", "R4"],
+        "facility_id": ["HSP-A", "HSP-A", "HSP-A", "HSP-A"],
+        "facility_name_raw": ["Kisumu CRH", "Kisumu County Referral", "Busia CRH", "Somewhere Else"],
+        "patient_blood_group": ["O+"] * 4,
+    })
+    r = requests_with_facility_check(requests, facilities).set_index("request_id")["name_variant"]
+    assert r["R1"] == "abbreviation"  # expands to exactly HSP-A's name
+    assert r["R2"] == "ambiguous"     # a prefix of both Kisumu sites
+    assert r["R3"] == "mismatch"    # typed name is another facility: worth a human look
+    assert r["R4"] == "unmatched"
 
 
 def test_unknown_patient_group_stays_unknown(mini_tables):

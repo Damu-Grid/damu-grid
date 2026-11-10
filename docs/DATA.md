@@ -114,7 +114,7 @@ Shelf lives in the model (dataset README): red cells 42 days, whole blood 35, pl
 
 | Problem | Measured in the CSVs | Handling |
 |---|---|---|
-| Facility names typed differently | 1,852 of 17,430 requests (10.6%) differ from `facilities.name`: 1,142 by case or spacing only, 710 otherwise (abbreviations) | Keyed by `facility_id`; the typed name is kept as typed and only compared. The official README says about 14%: our exact-string comparison finds 10.6%, a discrepancy we report rather than adjust |
+| Facility names typed differently | 1,852 of 17,430 requests (10.6%) differ from `facilities.name`: 1,142 by case or spacing only, 710 by abbreviation (`CRH`, `Hosp.`, a missing "(Nairobi)"). Every one of them resolves to the recorded `facility_id`: 0 ambiguous, 0 pointing to another facility, 0 unmatched | Keyed by `facility_id`; the typed name is kept as typed and only compared. Ambiguous or wrong-site names would be flagged for a human look. The official README says about 14%: our exact-string comparison finds 10.6%, a discrepancy we report rather than adjust |
 | Unknown patient group | 442 requests, all emergencies (5.0% of 8,768) | Stays `unknown`; never assigned to a group |
 | Missing `received_at` | 1,046 of 35,181 transfers (3.0%) | `receipt_status = unconfirmed`, no transit time; in the snapshot, 27 units on the shelf (17 RBC) are flagged and not suggested |
 | Temperature glitches | 55 readings: 17 × −99.0, 16 × 99.9, 22 × 0.0 | Classified `glitch`, never an excursion. The official README says 60; we find 55 exact matches and report the difference |
