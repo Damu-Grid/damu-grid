@@ -15,7 +15,7 @@ import pandas as pd
 
 from pipeline.coldchain import site_flags, unit_flags, write_flags
 from pipeline.config import DEFAULT_CONFIG_PATH, load_config
-from pipeline.eligibility import active_reserved_units, unit_eligibility
+from pipeline.eligibility import active_reserved_units, shelf_life_check, unit_eligibility
 from pipeline.load import RAW_DIR, SchemaError, load_all
 from pipeline.quality import quality_report
 from pipeline.snapshot import build_snapshot, write_snapshot
@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--raw-dir", type=Path, default=RAW_DIR)
     parser.add_argument("--db", type=Path, default=DB_PATH)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    parser.add_argument("--enable", nargs="*", default=[], metavar="COMPONENT",
+                        help="Tier 2: also compute eligibility for these components, e.g. --enable PLT")
     args = parser.parse_args(argv)
 
     try:
@@ -62,6 +64,13 @@ def main(argv: list[str] | None = None) -> int:
     write_flags(conn, pd.concat([sites, flags], ignore_index=True))
     print("cold-chain flags: sites " + str(sites["flag_type"].value_counts().to_dict())
           + ", units " + str(flags.groupby("flag_type")["unit_id"].nunique().to_dict()))
+    shelf = shelf_life_check(tables["units"], config)
+    mismatched = shelf.loc[~shelf["matches"], "component"].tolist()
+    print("shelf lives: configured values match the data" if not mismatched
+          else f"SHELF LIFE MISMATCH for {mismatched}: check the settings file")
+    if args.enable:
+        config = config.with_components_enabled(*args.enable)
+        print(f"Tier 2: also computing eligibility for {args.enable} (not the default demo scope)")
     elig = unit_eligibility(snap.units, config, snap.as_of, active_reserved_units(conn), flags)
     print(f"unit eligibility ({', '.join(config.enabled_components())} in the queue): "
           f"{len(elig.eligible):,} eligible of {len(elig.units):,}")

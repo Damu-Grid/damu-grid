@@ -29,7 +29,18 @@ min_remaining_hours_on_arrival = 168.0
 storage_min_c = 2.0
 storage_max_c = 6.0
 
+# Platelets: Tier 2, behind this flag. Kept at room temperature, so the fridge logs do not describe
+# them; there is no storage evidence for platelets in the dataset.
 [components.PLT]
 shelf_life_days = 5
 enabled_in_queue = false
 min_remaining_hours_on_arrival = 24.0
+max_travel_hours = 6.0
+
+[components.FFP]
+shelf_life_days = 365
+enabled_in_queue = false
+
+[components.CRYO]
+shelf_life_days = 365
+enabled_in_queue = false

@@ -42,6 +42,7 @@ MOVE_REASONS = (
     "recipient_not_hospital",
     "no_route",
     "route_time_missing",
+    "route_too_long_for_component",
     "insufficient_life_on_arrival",
     "sender_below_reserve",
     "no_documented_recipient_gap",
@@ -149,9 +150,12 @@ def check_move(
             reasons.append("route_time_missing")
             travel = None
     remaining = None
+    policy = config.policy(unit["component"])
     if travel is not None:
+        if policy.max_travel_hours is not None and travel > policy.max_travel_hours:
+            reasons.append("route_too_long_for_component")
         remaining = remaining_hours_on_arrival(unit["expiry_date"], as_of, float(travel), config)
-        if remaining < config.policy(unit["component"]).min_remaining_hours_on_arrival:
+        if remaining < policy.min_remaining_hours_on_arrival:
             reasons.append("insufficient_life_on_arrival")
     stock_after = sender_available - units_moving
     if stock_after < reserve:
@@ -204,6 +208,18 @@ def candidate_moves(
                 leaving += move["ok"]
                 rows.append(move)
     return pd.DataFrame(rows)
+
+
+def shelf_life_check(units: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
+    """Compare the configured shelf life of each component with `expiry_date - collection_date`
+    in the data, so a wrong setting is caught before it reaches the queue."""
+    days = (units["expiry_date"] - units["collection_date"]).dt.days
+    obs = days.groupby(units["component"]).agg(["min", "max", lambda d: d.mode().iloc[0], "size"])
+    obs.columns = ["observed_min_days", "observed_max_days", "observed_mode_days", "units"]
+    obs["configured_days"] = [config.policy(c).shelf_life_days for c in obs.index]
+    obs["matches"] = obs["observed_mode_days"].eq(obs["configured_days"])
+    obs["in_queue"] = [config.policy(c).enabled_in_queue for c in obs.index]
+    return obs.reset_index()
 
 
 def active_reserved_units(conn) -> set[str]:

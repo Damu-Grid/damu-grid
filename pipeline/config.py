@@ -26,6 +26,8 @@ class ComponentPolicy:
     # Safe storage range from the data dictionary; None = not given, fridge logs not applicable.
     storage_min_c: float | None = None
     storage_max_c: float | None = None
+    # Longest road trip allowed for this product (None = no limit beyond remaining life).
+    max_travel_hours: float | None = None
 
 
 @dataclass(frozen=True)
@@ -36,7 +38,7 @@ class PipelineConfig:
     components: dict[str, ComponentPolicy] = field(default_factory=lambda: {
         "RBC": ComponentPolicy(42, True, 168.0, 2.0, 6.0),
         "WB": ComponentPolicy(35, False, 168.0, 2.0, 6.0),
-        "PLT": ComponentPolicy(5, False, 24.0, None, None),
+        "PLT": ComponentPolicy(5, False, 24.0, None, None, max_travel_hours=6.0),
         "FFP": ComponentPolicy(365, False, 720.0, None, None),
         "CRYO": ComponentPolicy(365, False, 720.0, None, None),
     })

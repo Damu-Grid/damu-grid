@@ -136,6 +136,10 @@ Team defaults: an excursion is at least **2 consecutive hourly readings** outsid
 | Official `temp_excursion_exposed` | — | 87 |
 | Receipt unconfirmed | — | 17 |
 
+### Other components (DG-08, Tier 2, behind a flag)
+
+Each component has its own policy in `pipeline/settings/kenya_default.toml`: shelf life (RBC 42, WB 35, PLT 5, FFP and CRYO 365 days, all matching `expiry_date − collection_date` in `units.csv`), whether it is in the queue, the remaining life required on arrival (PLT 24 hours) and a maximum road time (PLT 6 hours). Only RBC is in the queue by default. `python -m pipeline build --enable PLT` computes platelet eligibility without changing the RBC result: 19 platelets are on the shelf at as-of and all 19 pass the unit checks. Caveat: the dataset has no storage evidence for platelets (the fridge logs describe the 2–6 °C blood fridge), so platelet eligibility is less informed than RBC. Do not present multi-component support in the demo or README unless the demand path and API are ready (DG-17, DG-29).
+
 A site event is attached to a unit only if it happened while the unit was on that shelf. With these flags, **598 of 738 RBC** remain eligible. **39 RBC** have evidence of an excursion, an outage without backup or a logger gap during their time on the shelf although the official exposure flag is `False`; they are held back for review, not declared unsafe.
 
 ## Redistribution starting tables
