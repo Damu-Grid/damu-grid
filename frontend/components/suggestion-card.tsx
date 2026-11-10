@@ -1,6 +1,12 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import { ActionDialog } from "@/components/action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Suggestion } from "@/lib/api/schemas";
+import type { ActionResult, Suggestion, SuggestionAction } from "@/lib/api/schemas";
+import { useRole } from "@/lib/session";
 import {
   DataAgeChip,
   ExpiryChip,
@@ -22,6 +28,43 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+export function OutcomeNote({
+  action,
+  result,
+}: {
+  action: SuggestionAction;
+  result: ActionResult;
+}) {
+  const text =
+    action === "accept"
+      ? "Accepted: units reserved. Waiting for the sending officer to dispatch."
+      : action === "change"
+        ? "Changed: a revised suggestion replaces this one."
+        : "Rejected: reason recorded in the audit trail.";
+  return (
+    <p
+      role="status"
+      className={
+        action === "reject"
+          ? "rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground"
+          : "rounded-md bg-ok px-3 py-2 text-sm text-ok-foreground"
+      }
+    >
+      {text}
+      {result.state && ` State: ${result.state}.`}
+      {result.move_id && (
+        <>
+          {" "}
+          <Link href={`/moves/${encodeURIComponent(result.move_id)}`} className="underline">
+            Move {result.move_id}
+          </Link>
+          .
+        </>
+      )}
+    </p>
+  );
+}
+
 function SiteName({ id, name }: { id: string; name?: string }) {
   return (
     <span>
@@ -34,11 +77,28 @@ function SiteName({ id, name }: { id: string; name?: string }) {
 export function SuggestionCard({
   suggestion: s,
   placeholder = false,
+  onDecided,
 }: {
   suggestion: Suggestion;
   placeholder?: boolean;
+  onDecided?: (suggestion: Suggestion, action: SuggestionAction, result: ActionResult) => void;
 }) {
   const unitCount = s.unit_ids.length;
+  const { role } = useRole();
+  const [dialog, setDialog] = useState<SuggestionAction | null>(null);
+  const [outcome, setOutcome] = useState<{ action: SuggestionAction; result: ActionResult } | null>(
+    null,
+  );
+
+  const blockedReason = placeholder
+    ? "Placeholder card: actions need the live API."
+    : role !== "coordinator"
+      ? "Only the regional stock coordinator can accept, change or reject."
+      : !s.eligibility_ok
+        ? "This suggestion failed eligibility checks."
+        : null;
+  const canAct = !blockedReason && !outcome;
+
   return (
     <Card className={placeholder ? "border-dashed opacity-80" : undefined}>
       <CardHeader className="gap-2">
@@ -98,18 +158,40 @@ export function SuggestionCard({
         </details>
       </CardContent>
 
-      {/* Actions are wired to the API in DG-31; disabled until then. */}
-      <CardFooter className="flex flex-wrap gap-2">
-        <Button disabled title="Wired in DG-31">
-          Accept
-        </Button>
-        <Button variant="outline" disabled title="Wired in DG-31">
-          Change
-        </Button>
-        <Button variant="outline" disabled title="Wired in DG-31">
-          Reject
-        </Button>
+      <CardFooter className="flex flex-wrap items-center gap-2">
+        {outcome ? (
+          <OutcomeNote action={outcome.action} result={outcome.result} />
+        ) : (
+          <>
+            <Button disabled={!canAct} onClick={() => setDialog("accept")}>
+              Accept
+            </Button>
+            <Button variant="outline" disabled={!canAct} onClick={() => setDialog("change")}>
+              Change
+            </Button>
+            <Button variant="outline" disabled={!canAct} onClick={() => setDialog("reject")}>
+              Reject
+            </Button>
+            {blockedReason && (
+              <span className="text-sm text-muted-foreground">{blockedReason}</span>
+            )}
+          </>
+        )}
       </CardFooter>
+
+      {dialog && role && (
+        <ActionDialog
+          suggestion={s}
+          action={dialog}
+          role={role}
+          open
+          onOpenChange={(open) => !open && setDialog(null)}
+          onDone={(action, result) => {
+            setOutcome({ action, result });
+            onDecided?.(s, action, result);
+          }}
+        />
+      )}
     </Card>
   );
 }
