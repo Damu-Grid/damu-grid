@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { ActionDialog } from "@/components/action-dialog";
 import { Button } from "@/components/ui/button";
@@ -51,7 +52,15 @@ export function OutcomeNote({
     >
       {text}
       {result.state && ` State: ${result.state}.`}
-      {result.move_id && ` Move ${result.move_id}.`}
+      {result.move_id && (
+        <>
+          {" "}
+          <Link href={`/moves/${encodeURIComponent(result.move_id)}`} className="underline">
+            Move {result.move_id}
+          </Link>
+          .
+        </>
+      )}
     </p>
   );
 }
