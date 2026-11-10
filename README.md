@@ -24,7 +24,7 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 ## What we built
 
 - What works now: planning documents, official dataset in `data/raw/`, and the intended architecture in `docs/`. Application features will be checked off here as they land in the window.
-  - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (598 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags checked against the official exposure flag (87 of 87 exposed red cells found). 89 automated tests.
+  - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (598 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags checked against the official exposure flag (87 of 87 exposed red cells found), with its own automated tests.
 - What is mocked or not finished: the working prototype, baseline numbers, UI, demo video and slides are to be built in the window. Tier 2 items are listed in `docs/IMPLEMENTATION_PLAN.md`.
 
 Demo video (3 minutes or less): [link to be added]
@@ -39,10 +39,15 @@ git clone https://github.com/Damu-Grid/damu-grid.git
 cd damu-grid
 uv sync
 uv run python -m pipeline build     # ~15 s: validates the CSVs, writes data/processed/damu_grid.sqlite
-uv run pytest                       # 89 tests (add -m "not dataset" for the fast subset)
+uv run python -m forecasting.evaluate
+uv run python -m simulation.compare
+uv run pytest                       # all Python tests (add -m "not dataset" for the fast subset)
+uv run ruff check .
 ```
 
 `python -m pipeline build` prints the row counts, the closing snapshot, the cold-chain flags and how many red-cell units are eligible, with the reason for every exclusion. Nothing under `data/raw/` is written. Details: `pipeline/README.md`.
+
+The forecast command writes a row-level table, metrics JSON, and Markdown summary into ignored `data/processed/`. The split, models, upper-bound level, and simulation seeds are fixed in committed code. These commands use only the official synthetic CSVs.
 
 Remaining steps, to be completed as the other packages land:
 
@@ -85,7 +90,9 @@ Conceptual mappings to FHIR, ISBT 128 or DHIS2, if added, will be labelled as co
 
 - What the AI or data feature does: a pooled demand estimator (hospital-total RBC demand allocated by historical known-group proportions) informs recipient gaps and sender reserves. Suggestions rank eligible exact-group red-cell units by estimated use before expiry, given typical route time. This is a statistical data feature. An optional Tier 2 LLM only drafts a plain-language explanation from those numbers; it must not invent stock or demand figures.
 - Baseline we compared against: for each hospital and known group, seven-day predicted requested units = 7 × (requested RBC units in the preceding 28 calendar days ÷ 28). Optional second comparison: nearest eligible site first versus expiry-aware ranking, on documented synthetic scenarios.
-- Result: baseline [to be computed in the window] vs ours [to be computed in the window], on the official starter data, using the time split in `docs/EVALUATION.md` (learn 1 Nov 2025–30 Apr 2026; calibrate May–June; evaluate seven-day origins from 1 Jul 2026 through 21 Oct 2026).
+- Result (recomputed in this build window on the official **synthetic** requests): the seven-day 28-day-average baseline has RMSE **2.792** and MAE **1.482**; the frozen pooled expanding-mean candidate has RMSE **2.474** and MAE **1.331**. This covers 4,352 hospital/group forecasts at 17 weekly origins from 1 July to 21 October 2026. The candidate's RMSE is 11.4% lower on this retrospective synthetic split. See [`docs/EVALUATION.md`](docs/EVALUATION.md) for the methodology and [`forecasting/evaluate.py`](forecasting/evaluate.py) for the reproducible command; no independent unseen-year result is claimed.
+- Uncertainty: a one-sided **90%** upper bound calibrated on eight May–June origins covers **88.8%** of July–October cases overall and **91.5%** of O-negative cases. Overall coverage falls short of the nominal level; the bound is a model estimate, not a clinical probability or per-site guarantee.
+- Optional transfer scenario: `uv run python -m simulation.compare` compares one-shot nearest and expiry-aware rankings on the same 30 fixed-seed, seven-day synthetic demand draws. Mean unmet units are **333.3** versus **332.7**, mean expiries **1.03** versus **1.00**, and both policies move **1.0** unit in **1.0** route batch. This narrow scenario is not evidence of large general improvement or a replay of observed November demand.
 - How a user sees the reason for a recommendation: each card shows unit/group, sender reserve, recipient gap, expiry, typical travel time, data age, assumed benefit, and uncertainty. Deterministic text first; optional LLM rewrite of the same numbers.
 - Who approves it (Accept / Change / Reject): the regional stock coordinator. The sender rechecks and dispatches. The receiver confirms arrival. A qualified safety role controls quarantine; the model cannot clear it.
 - What happens if the AI is wrong or offline: nearest eligible site matching using a simple historical demand rule, with the same safety gates and human decisions. Offline or disconnected actions remain pending until reconciled (Tier 2 sync queue).
@@ -93,6 +100,8 @@ Conceptual mappings to FHIR, ISBT 128 or DHIS2, if added, will be labelled as co
 ## Data
 
 We use the official synthetic starter dataset in `data/raw/`. Tables used for the core workflow: `facilities`, `routes`, `units`, `daily_stock`, `requests`, `transfers`. Optional / Tier 2: `donations`, `power_outages`, `temperature_logs`. Donor tables are not required for redistribution decisions and will not be displayed as personal data.
+
+The supplied [competition brief and deck templates](starter-kit/README.md) are in `starter-kit/`. The dataset CSVs are already tracked under `data/raw/`; the large zip is not duplicated.
 
 Measured on the CSVs in the window (all synthetic; details and denominators in `docs/DATA.md`):
 
@@ -109,7 +118,7 @@ Facilities in the starter data include `grid_reliability`, `connectivity` (2G / 
 
 ## AI tools we used
 
-To be filled during the window. Tool, and what we used it for. Write "None" if none. Using AI does not cost points; hiding it, or submitting work the team cannot explain, will. Planned tools include Cursor, Claude, Codex or similar assistants for coding, plus an optional LLM API for explanation text. Each use will be listed here.
+OpenAI Codex assisted the in-window evaluation harness, tests, kit inventory, benchmark reproduction and README edits. The team must add every other AI coding tool actually used on its own work. Every team member must be able to explain the submitted code.
 
 ## Team
 
@@ -124,7 +133,7 @@ There is **no team lead**. Everyone is an equal teammate. Blessings and Timi are
 
 ## Known limits and next steps
 
-- Results in this README will be computed in the window on synthetic data only.
+- Forecast results above were computed in the window on synthetic data only. They assume the request record is complete; missing rows are treated as zero demand.
 - Tier 1 is known-group RBC. Other components (for example platelets, 5-day shelf life in the dataset model) are Tier 2 and need their own policy before they are treated like red cells.
 - Historical inventory will use an explicit closing snapshot, not a reconstruction from final unit locations.
 - About 3% of `transfers` lack `received_at`; the dataset README says 14% of `requests` have messy typed facility names (our exact comparison finds 10.6%; we use `facility_id`); 5% of emergency requests have unknown blood group; temperature logs contain gaps and, per the dataset README, 60 sensor glitches (we find 55 readings of exactly −99.0, 99.9 or 0.0).
