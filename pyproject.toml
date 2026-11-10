@@ -1,0 +1,31 @@
+[project]
+name = "damu-grid"
+version = "0.1.0"
+description = "Expiry-aware red-cell redistribution review queue (Terumo BCT Africa Hackathon 2026, synthetic data)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.1",
+    "numpy>=1.26",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "dataset: reads the full official CSVs in data/raw (slower)",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["data/raw", "notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
