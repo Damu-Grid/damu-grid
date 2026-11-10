@@ -1,0 +1,22 @@
+# Ownership areas, not seniority. There is no team lead.
+# These paths should be reviewed by the named teammate when they are online.
+
+* @drizzy765 @bleymambwe @Sorghobrayan-dotcom @Dan-Boumba
+
+/backend/ @drizzy765
+/docs/API_SPEC.md @drizzy765
+/docs/ARCHITECTURE.md @drizzy765 @bleymambwe
+
+/forecasting/ @bleymambwe
+/simulation/ @bleymambwe
+/docs/EVALUATION.md @bleymambwe
+/notebooks/ @bleymambwe @Sorghobrayan-dotcom
+
+/pipeline/ @Sorghobrayan-dotcom
+/docs/DATA.md @Sorghobrayan-dotcom
+/data/ @Sorghobrayan-dotcom
+
+/frontend/ @Dan-Boumba
+/slides/ @Dan-Boumba
+/docs/DESIGN.md @Dan-Boumba
+/docs/DEMO_AND_SUBMISSION.md @Dan-Boumba

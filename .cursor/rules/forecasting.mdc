@@ -1,0 +1,7 @@
+---
+description: Forecasting, baselines, and simulation honesty rules
+globs: forecasting/**/*,simulation/**/*,notebooks/**/*,docs/EVALUATION.md
+alwaysApply: false
+---
+
+Blessings (`bleymambwe`) is the primary owner of `forecasting/` and `simulation/`. Freeze the 28-day baseline and the candidate estimator before looking at evaluation outcomes. Use the documented time split. Use only requests strictly before each origin. Report the candidate even if it loses. Scenario transfer "savings" are assumption-based and must not be called measured blood saved or real-world impact. Keep evaluation code reproducible (seeds, commands, outputs).
