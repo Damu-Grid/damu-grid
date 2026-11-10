@@ -1,11 +1,16 @@
-import { NotBuilt } from "@/components/not-built";
+import { MoveQueue } from "@/components/move-queue";
 
 export default function ReceivePage() {
   return (
-    <NotBuilt
+    <MoveQueue
+      action="receive"
       title="Receive"
-      issue="DG-32"
-      detail="The receiving officer will confirm arrival and cool-box evidence here. Receipt is not a release for transfusion."
+      intro={
+        <>
+          Moves on their way to you. Confirm arrival and cool-box evidence.{" "}
+          <strong>Receipt is not a release for transfusion.</strong>
+        </>
+      }
     />
   );
 }

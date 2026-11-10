@@ -52,6 +52,103 @@ export const SuggestionListSchema = z
   .union([z.array(SuggestionSchema), z.object({ items: z.array(SuggestionSchema) })])
   .transform((v) => (Array.isArray(v) ? v : v.items));
 
+// Coordinator actions (docs/API_SPEC.md): bodies carry actor_id, role, reason,
+// an event_id for idempotency and, when known, a unit_version. Server sets time.
+export const ACTIONS = ["accept", "change", "reject"] as const;
+export type SuggestionAction = (typeof ACTIONS)[number];
+
+export const REJECT_REASONS = [
+  "Not enough staff or transport",
+  "Receiving hospital refused",
+  "Data looks wrong",
+  "Other",
+] as const;
+
+export type ActionBody = {
+  event_id: string;
+  actor_id: string;
+  role: Role;
+  reason: string;
+  unit_version?: number;
+  // Change only: a revised destination and/or a subset of the units.
+  to_facility_id?: string;
+  unit_ids?: string[];
+};
+
+// The response shape is not fixed in the spec yet; keep what the API sends.
+export const ActionResultSchema = z
+  .object({
+    state: z.string().optional(),
+    move_id: z.string().optional(),
+    suggestion_id: z.string().optional(),
+    suggestion: SuggestionSchema.optional(),
+  })
+  .passthrough();
+export type ActionResult = z.infer<typeof ActionResultSchema>;
+
+// Moves follow the state machine in docs/ARCHITECTURE.md. State names are
+// compared case-insensitively without separators ("InTransit" == "in_transit").
+export const AuditEventSchema = z
+  .object({
+    event_id: z.string().optional(),
+    ts: z.string(),
+    actor_id: z.string(),
+    role: z.string(),
+    action: z.string(),
+    from_state: z.string().nullable().optional(),
+    to_state: z.string().nullable().optional(),
+    reason: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type AuditEvent = z.infer<typeof AuditEventSchema>;
+
+export const MoveSchema = z
+  .object({
+    move_id: z.string(),
+    suggestion_id: z.string().optional(),
+    state: z.string(),
+    version: z.number().optional(),
+    component: z.string(),
+    blood_group: z.string(),
+    unit_ids: z.array(z.string()),
+    from_facility_id: z.string(),
+    to_facility_id: z.string(),
+    expiry_date: z.string().optional(),
+    typical_travel_hours: z.number().nullable().optional(),
+    lease_expires_at: z.string().nullable().optional(),
+    warnings: z.array(z.string()).default([]),
+    audit: z.array(AuditEventSchema).default([]),
+  })
+  .passthrough();
+export type Move = z.infer<typeof MoveSchema>;
+
+export const MoveListSchema = z
+  .union([z.array(MoveSchema), z.object({ items: z.array(MoveSchema) })])
+  .transform((v) => (Array.isArray(v) ? v : v.items));
+
+export const MOVE_ACTIONS = ["dispatch", "receive"] as const;
+export type MoveAction = (typeof MOVE_ACTIONS)[number];
+
+// What the receiving officer can say about the cool-box evidence. Anything but
+// "ok" must leave the units held for the safety officer; receipt never clears it.
+export const COLD_CHAIN_EVIDENCE = ["ok", "excursion", "unknown"] as const;
+export type ColdChainEvidence = (typeof COLD_CHAIN_EVIDENCE)[number];
+
+export type MoveActionBody = {
+  event_id: string;
+  actor_id: string;
+  role: Role;
+  version?: number;
+  note?: string;
+  // Receive only.
+  cold_chain_evidence?: ColdChainEvidence;
+  coolbox_max_temp_c?: number | null;
+};
+
+export function stateKey(state: string): string {
+  return state.toLowerCase().replace(/[^a-z]/g, "");
+}
+
 export const SnapshotSchema = z
   .object({
     as_of: z.string(),
