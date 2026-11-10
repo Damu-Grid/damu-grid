@@ -1,4 +1,8 @@
-"""Command line: `python -m pipeline validate`."""
+"""Command line.
+
+    python -m pipeline validate   # DG-01: check the official CSVs, write a row-count report
+    python -m pipeline build      # DG-02: validate, then build data/processed/damu_grid.sqlite
+"""
 
 from __future__ import annotations
 
@@ -8,18 +12,20 @@ import sys
 from pathlib import Path
 
 from pipeline.load import RAW_DIR, SchemaError, load_all
+from pipeline.store import DB_PATH, connect, create_schema, write_official
 
 PROCESSED_DIR = RAW_DIR.parent / "processed"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m pipeline")
-    parser.add_argument("command", choices=["validate"])
+    parser.add_argument("command", choices=["validate", "build"])
     parser.add_argument("--raw-dir", type=Path, default=RAW_DIR)
+    parser.add_argument("--db", type=Path, default=DB_PATH)
     args = parser.parse_args(argv)
 
     try:
-        _, report = load_all(args.raw_dir)
+        tables, report = load_all(args.raw_dir)
     except SchemaError as exc:
         print(f"VALIDATION FAILED: {exc}", file=sys.stderr)
         return 1
@@ -30,7 +36,15 @@ def main(argv: list[str] | None = None) -> int:
     out.write_text(json.dumps({"row_counts": report.row_counts,
                                "discrepancies": report.row_count_discrepancies}, indent=2))
     print(f"report written to {out}")
-    return 0 if report.ok else 2
+    if args.command == "validate":
+        return 0 if report.ok else 2
+
+    conn = connect(args.db)
+    create_schema(conn)
+    write_official(conn, tables)
+    print(f"database written to {args.db}")
+    conn.close()
+    return 0
 
 
 if __name__ == "__main__":
