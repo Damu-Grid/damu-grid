@@ -1,11 +1,11 @@
-import { NotBuilt } from "@/components/not-built";
+import { MoveQueue } from "@/components/move-queue";
 
 export default function DispatchPage() {
   return (
-    <NotBuilt
+    <MoveQueue
+      action="dispatch"
       title="Dispatch"
-      issue="DG-32"
-      detail="The sending officer will recheck reserved units and confirm dispatch here."
+      intro="Reserved moves waiting for the sending officer. Recheck the physical units before you dispatch."
     />
   );
 }
