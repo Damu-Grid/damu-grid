@@ -87,14 +87,16 @@ Share of red cell and whole blood units wasted (expired or discarded after tempe
 **Headline:** WHICH HOSPITAL WILL USE THESE RED CELLS BEFORE THEY EXPIRE
 
 - **Method:** A pooled demand forecast: each hospital's red cell demand from its request history, split by network-wide blood-group shares. It sets recipient gaps and sender reserves for ranking. Data: hospital requests, units, routes.
-- **Why this?** Each card says in plain words why the move is suggested, using only computed numbers: expiry, travel time, the recipient's gap, the reserve the sender keeps, and an uncertainty label.
+- **Why this?** Each card says in plain words why the move is suggested, using only computed numbers: expiry, travel time, the recipient's gap, the reserve the sender keeps, and an uncertainty label. The forecast's 90% upper bound held in 88.8% of test weeks (91.5% for O−): close to nominal, and shown as an estimate, not a clinical probability.
 - **Who decides:** The regional stock coordinator accepts, changes or rejects. Every decision is recorded in the audit trail with who, when and why.
 - **If it fails:** Model off → nearest eligible site rule, with the same safety checks and the same approval.
 
 **Does it beat a baseline?**
-- 28-day average: **[[x.xxx]]**
-- Our model: **[[y.yyy]]**
-- *7-day RMSE in requested units, weekly origins Jul – Oct 2026, [[n]] hospital-group-weeks, synthetic.* [[If the model loses: "The baseline won; the live queue uses it."]]
+- 28-day average: **2.792**
+- Our model: **2.474** (11.4% lower)
+- *7-day forecast error (RMSE, requested red cell units) on held-out weekly origins, Jul – Oct 2026; 4,352 hospital × blood group × week observations; synthetic starter data.*
+
+*Source: Blessings' `python -m forecasting.evaluate` (PR #47), computed in the window. Re-check against `data/processed/forecast_summary.md` after #47 merges, and before recording.*
 
 ---
 
@@ -145,3 +147,4 @@ The fifth box is unused; delete it.
 - 177 rebalancing: `transfers.csv`, `transfer_type = inter_centre_rebalancing`, out of 35,181 transfers.
 - 22 of 47 on 3G or 2G: `facilities.csv` connectivity (3G 19, 2G 3, 4G 25).
 - 1–3 routine deliveries a week and the ~5 h emergency median: official dataset README.
+- Slide 06 forecast figures: PR #47 description (`forecasting/evaluate.py`; nominal 90% one-sided upper bound). The expiry-aware vs nearest-site scenario in #47 showed no meaningful difference (333.3 vs 332.7 mean unmet units), so no transfer-benefit figure appears on the slides.
