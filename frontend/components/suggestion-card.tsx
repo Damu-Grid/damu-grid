@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useState } from "react";
 import { ActionDialog } from "@/components/action-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardFooter } from "@/components/ui/card";
 import type { ActionResult, Suggestion, SuggestionAction } from "@/lib/api/schemas";
+import { initials, shortName } from "@/lib/facilities";
 import { useRole } from "@/lib/session";
+import { cn } from "@/lib/utils";
 import {
   DataAgeChip,
   ExpiryChip,
@@ -17,6 +19,10 @@ import {
 
 function fmt(value: number | null, unit = "") {
   return value === null ? "not computed" : `${value}${unit}`;
+}
+
+function units(value: number | null) {
+  return value === null ? "not computed" : `${value} unit${value === 1 ? "" : "s"}`;
 }
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
@@ -65,13 +71,24 @@ export function OutcomeNote({
   );
 }
 
-function SiteName({ id, name }: { id: string; name?: string | null }) {
+/** Rh-negative groups are the scarce ones: gold badge, as in the reference. */
+function GroupBadge({ group }: { group: string }) {
+  const negative = group.endsWith("-");
   return (
-    <span>
-      {name ? `${name} ` : ""}
-      <code className="text-sm">{id}</code>
+    <span
+      className={
+        negative
+          ? "rounded-md bg-gold-soft px-1.5 py-0.5 text-xs font-bold text-gold-ink"
+          : "rounded-md border border-pale px-1.5 py-0.5 text-xs font-bold text-navy"
+      }
+    >
+      {group.replace("-", "−")}
     </span>
   );
+}
+
+function daysAfterAsOf(expiryDate: string, asOf: string) {
+  return Math.floor((Date.parse(`${expiryDate}T23:59:59+03:00`) - Date.parse(asOf)) / 86_400_000);
 }
 
 export function SuggestionCard({
@@ -99,39 +116,65 @@ export function SuggestionCard({
         : null;
   const canAct = !blockedReason && !outcome;
 
-  return (
-    <Card className={placeholder ? "border-dashed opacity-80" : undefined}>
-      <CardHeader className="gap-2">
-        <div className="flex flex-wrap gap-2">
-          <ExpiryChip expiryDate={s.expiry_date} asOf={s.as_of} />
-          {s.fallback ? <FallbackChip /> : <PolicyChip policy={s.policy} />}
-          <DataAgeChip asOf={s.as_of} ageHours={s.data_age_hours} />
-        </div>
-        <CardTitle className="text-lg leading-snug">
-          Move {unitCount} {s.blood_group} {s.component} unit{unitCount === 1 ? "" : "s"} from{" "}
-          <SiteName id={s.from_facility_id} name={s.from_facility_name} /> to{" "}
-          <SiteName id={s.to_facility_id} name={s.to_facility_name} />
-        </CardTitle>
-      </CardHeader>
+  const from = shortName(s.from_facility_id, s.from_facility_name);
+  const to = shortName(s.to_facility_id, s.to_facility_name);
+  const expiring = daysAfterAsOf(s.expiry_date, s.as_of) <= 10;
 
-      <CardContent className="space-y-4">
-        <p>{s.reason_deterministic}</p>
+  return (
+    <Card className={cn("gap-0 py-0", placeholder && "border-dashed opacity-80")}>
+      <div className="flex items-start gap-3 px-5 pt-4">
+        <span
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-navy text-xs font-bold text-white"
+          aria-hidden
+        >
+          {initials(s.from_facility_id, s.from_facility_name)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[1.05rem] font-bold text-ink">
+              {from} → {to}
+            </span>
+            <GroupBadge group={s.blood_group} />
+            {s.fallback && <FallbackChip />}
+          </div>
+          <div className="font-mono text-xs text-ink-2">
+            {s.from_facility_id} → {s.to_facility_id}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="font-bold text-ink">
+            {unitCount} unit{unitCount === 1 ? "" : "s"}
+          </div>
+          <div className="text-xs text-ink-2">{s.component}</div>
+        </div>
+      </div>
+      <div
+        className={cn("mx-5 mt-3 h-1.5 rounded-full", expiring ? "bg-gold" : "bg-navy")}
+        title={expiring ? "Expiring soon: moving it avoids waste" : "Top-up"}
+        aria-hidden
+      />
+
+      <div className="space-y-3 px-5 py-4">
+        <p className="text-ink">{s.reason_deterministic}</p>
         {s.reason_llm && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-ink-2">
             Plain-language version (rewritten from the same numbers): {s.reason_llm}
           </p>
         )}
 
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-          <Field label="Typical travel" value={fmt(s.typical_travel_hours, " h")} />
-          <Field label="Sender reserve kept" value={fmt(s.sender_reserve_units, " units")} />
-          <Field label="Sender stock after" value={fmt(s.sender_stock_after, " units")} />
-          <Field label="Recipient gap" value={fmt(s.recipient_gap_units, " units")} />
-          <Field label="Expected use if moved (estimate)" value={fmt(s.expected_use_if_moved)} />
-          <Field label="Expected use if it stays (estimate)" value={fmt(s.expected_use_if_stays)} />
-        </dl>
+        <div className="flex flex-wrap gap-2">
+          <ExpiryChip expiryDate={s.expiry_date} asOf={s.as_of} />
+          {!s.fallback && <PolicyChip policy={s.policy} />}
+          <DataAgeChip asOf={s.as_of} ageHours={s.data_age_hours} />
+        </div>
 
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-2">
+          {fmt(s.typical_travel_hours, " h")} by road · recipient gap {units(s.recipient_gap_units)} ·
+          sender keeps {units(s.sender_reserve_units)}
+          {s.sender_stock_after !== null && `, ${s.sender_stock_after} left after`}
+        </p>
+
+        <p className="text-sm text-ink-2">
           Uncertainty: {s.uncertainty.label}
           {s.uncertainty.nominal_level !== null &&
             ` (nominal ${Math.round(s.uncertainty.nominal_level * 100)}% bound)`}
@@ -147,18 +190,22 @@ export function SuggestionCard({
         )}
 
         <details className="text-sm">
-          <summary className="cursor-pointer text-muted-foreground">
-            Unit IDs ({unitCount})
+          <summary className="cursor-pointer text-ink-2">
+            Estimates and unit IDs ({unitCount})
           </summary>
+          <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2">
+            <Field label="Expected use if moved (estimate)" value={fmt(s.expected_use_if_moved)} />
+            <Field label="Expected use if it stays (estimate)" value={fmt(s.expected_use_if_stays)} />
+          </dl>
           <ul className="mt-2 font-mono">
             {s.unit_ids.map((id) => (
               <li key={id}>{id}</li>
             ))}
           </ul>
         </details>
-      </CardContent>
+      </div>
 
-      <CardFooter className="flex flex-wrap items-center gap-2">
+      <CardFooter className="flex flex-wrap items-center gap-2 px-5 pb-4">
         {outcome ? (
           <OutcomeNote action={outcome.action} result={outcome.result} />
         ) : (

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { WarningChip } from "@/components/status-chips";
 import { stateKey, type AuditEvent, type Move } from "@/lib/api/schemas";
+import { shortName } from "@/lib/facilities";
 import { cn } from "@/lib/utils";
 
 const STATE_LABELS: Record<string, { label: string; tone: string }> = {
@@ -104,8 +105,10 @@ export function MoveCard({ move: m, children }: { move: Move; children?: React.R
         </div>
         <CardTitle className="text-lg leading-snug">
           {n} {m.blood_group} {m.component} unit{n === 1 ? "" : "s"}:{" "}
-          <code className="text-sm">{m.from_facility_id}</code> →{" "}
-          <code className="text-sm">{m.to_facility_id}</code>
+          {shortName(m.from_facility_id)} → {shortName(m.to_facility_id)}
+          <div className="font-mono text-xs font-normal text-ink-2">
+            {m.from_facility_id} → {m.to_facility_id}
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
