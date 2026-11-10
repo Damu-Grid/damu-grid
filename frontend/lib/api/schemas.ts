@@ -52,6 +52,40 @@ export const SuggestionListSchema = z
   .union([z.array(SuggestionSchema), z.object({ items: z.array(SuggestionSchema) })])
   .transform((v) => (Array.isArray(v) ? v : v.items));
 
+// Coordinator actions (docs/API_SPEC.md): bodies carry actor_id, role, reason,
+// an event_id for idempotency and, when known, a unit_version. Server sets time.
+export const ACTIONS = ["accept", "change", "reject"] as const;
+export type SuggestionAction = (typeof ACTIONS)[number];
+
+export const REJECT_REASONS = [
+  "Not enough staff or transport",
+  "Receiving hospital refused",
+  "Data looks wrong",
+  "Other",
+] as const;
+
+export type ActionBody = {
+  event_id: string;
+  actor_id: string;
+  role: Role;
+  reason: string;
+  unit_version?: number;
+  // Change only: a revised destination and/or a subset of the units.
+  to_facility_id?: string;
+  unit_ids?: string[];
+};
+
+// The response shape is not fixed in the spec yet; keep what the API sends.
+export const ActionResultSchema = z
+  .object({
+    state: z.string().optional(),
+    move_id: z.string().optional(),
+    suggestion_id: z.string().optional(),
+    suggestion: SuggestionSchema.optional(),
+  })
+  .passthrough();
+export type ActionResult = z.infer<typeof ActionResultSchema>;
+
 export const SnapshotSchema = z
   .object({
     as_of: z.string(),

@@ -24,12 +24,16 @@ The API base URL comes from `NEXT_PUBLIC_API_BASE_URL` (default `http://localhos
 
 Checks: `pnpm lint`, `pnpm typecheck`, `pnpm build`.
 
+End-to-end tests: `pnpm test:e2e`. Playwright starts a **test-only mock API** (`e2e/mock-api.mjs`, fake `MOCK-…` data following `docs/API_SPEC.md`) and the app, then drives accept / change / reject, a 409 conflict, model-off, role limits and the API-down banner. Locally it uses the installed Microsoft Edge; elsewhere run `pnpm exec playwright install chromium` and set `PW_CHANNEL=chromium`.
+
 ## Layout
 
 | Path | What |
 |---|---|
 | `app/login/` | Demo role picker (coordinator, sender, receiver, safety). Not production sign-in |
-| `app/queue/` | Coordinator review queue, model-off (fallback) switch |
+| `app/queue/` | Coordinator review queue, model-off (fallback) switch, decisions made this session |
+| `components/action-dialog.tsx` | Accept / Change / Reject with a required reason, one `event_id` per decision, 403/409/422 messages, Ctrl+Enter to submit |
+| `e2e/` | Playwright tests and the test-only mock API |
 | `app/dispatch/`, `app/receive/`, `app/evaluation/` | Stubs until DG-32 / DG-33 |
 | `lib/api/schemas.ts` | Zod schemas mirroring `docs/API_SPEC.md` |
 | `lib/api/client.ts` | Fetch wrapper: base URL, error mapping (403/409/422/503), `event_id` |

@@ -6,13 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { PlaceholderBanner } from "@/components/placeholder-banner";
-import { SuggestionCard } from "@/components/suggestion-card";
+import { OutcomeNote, SuggestionCard } from "@/components/suggestion-card";
 import { ApiError } from "@/lib/api/client";
 import { useSuggestions } from "@/lib/api/hooks";
+import type { ActionResult, Suggestion, SuggestionAction } from "@/lib/api/schemas";
 import { FIXTURE_SUGGESTIONS } from "@/lib/fixtures/suggestions";
+
+type Decision = { suggestion: Suggestion; action: SuggestionAction; result: ActionResult };
 
 export default function QueuePage() {
   const [modelOff, setModelOff] = useState(false);
+  // Decided suggestions usually leave the queue on reload; keep the outcome visible.
+  const [decisions, setDecisions] = useState<Decision[]>([]);
   const policy = modelOff ? "fallback" : "expiry_aware";
   const { data, error, isPending, refetch, isFetching } = useSuggestions(policy);
 
@@ -60,6 +65,26 @@ export default function QueuePage() {
         </Alert>
       )}
 
+      {decisions.length > 0 && (
+        <section aria-labelledby="decisions-heading" className="space-y-2">
+          <h2 id="decisions-heading" className="text-lg font-semibold">
+            Decisions this session
+          </h2>
+          <ul className="space-y-2">
+            {decisions.map((d) => (
+              <li key={`${d.suggestion.suggestion_id}-${d.action}`} className="space-y-1">
+                <p className="text-sm">
+                  {d.suggestion.unit_ids.length} {d.suggestion.blood_group}{" "}
+                  {d.suggestion.component}, <code>{d.suggestion.from_facility_id}</code> →{" "}
+                  <code>{d.suggestion.to_facility_id}</code>
+                </p>
+                <OutcomeNote action={d.action} result={d.result} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {isPending && <p className="text-muted-foreground">Loading suggestions…</p>}
 
       {showPlaceholders && (
@@ -85,7 +110,12 @@ export default function QueuePage() {
         <ul className="space-y-4">
           {data.map((s) => (
             <li key={s.suggestion_id}>
-              <SuggestionCard suggestion={s} />
+              <SuggestionCard
+                suggestion={s}
+                onDecided={(suggestion, action, result) =>
+                  setDecisions((prev) => [{ suggestion, action, result }, ...prev])
+                }
+              />
             </li>
           ))}
         </ul>
