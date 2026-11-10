@@ -57,6 +57,13 @@ class PrototypeTest(unittest.TestCase):
         self.assertTrue(fallback)
         self.assertTrue(all(s["fallback"] and s["eligibility_ok"] for s in fallback))
 
+    def test_reject_removes_card_and_is_audited(self):
+        self.event("reject")
+        self.assertNotIn(self.card["unit_ids"][0],
+                         [s["unit_ids"][0] for s in p.suggestions()])
+        with p.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM audit").fetchone()[0], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

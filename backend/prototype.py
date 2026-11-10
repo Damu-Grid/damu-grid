@@ -49,6 +49,8 @@ def init():
           destination TEXT, state TEXT, lease_until TEXT, eta TEXT);
         CREATE TABLE IF NOT EXISTS audit(event_id TEXT PRIMARY KEY, payload TEXT, result TEXT,
           actor TEXT, role TEXT, at TEXT);
+        CREATE TABLE IF NOT EXISTS decisions(unit_id TEXT PRIMARY KEY, state TEXT);
+        CREATE TABLE IF NOT EXISTS alerts(id TEXT PRIMARY KEY, actor TEXT, message TEXT, at TEXT);
         """)
         if db.execute("SELECT COUNT(*) FROM units").fetchone()[0]:
             return
@@ -94,11 +96,14 @@ def suggestions(policy="expiry_aware", limit=30, unique_units=True):
                      for site, amount in site_total.items() for group in GROUPS}
     with connect() as db:
         stock = [dict(u) for u in db.execute("SELECT * FROM units WHERE state='stock' AND safety='cleared'")]
+        rejected = {r[0] for r in db.execute("SELECT unit_id FROM decisions WHERE state='rejected'")}
     counts = defaultdict(int)
     for u in stock:
         counts[u["site"], u["grp"]] += 1
     output = []
     for u in stock:
+        if u["id"] in rejected:
+            continue
         origin, grp = u["site"], u["grp"]
         reserve = max(1, math.ceil(2 * rates.get((origin, grp), 0)))
         if counts[origin, grp] <= reserve or u["expiry"] > "2026-11-07":
@@ -122,7 +127,7 @@ def suggestions(policy="expiry_aware", limit=30, unique_units=True):
                 "expiry_date": u["expiry"], "typical_travel_hours": hours,
                 "sender_reserve_units": reserve, "sender_stock_after": counts[origin, grp] - 1,
                 "recipient_gap_units": gap, "expected_use_if_moved": None,
-                "expected_use_if_stays": None, "uncertainty": {"method": "28-day historical request rate",
+                "expected_use_if_stays": None, "uncertainty": {"method": "28-day site/group request rate" if fallback else "28-day site total allocated by network group mix",
                     "label": "Estimate from synthetic requests; reporting completeness assumed"},
                 "reason_deterministic": f"{grp} RBC expires {u['expiry']}; {dest} has an estimated gap of {gap}; {origin} retains at least {reserve} units. Review current stock and safety before approval.",
                 "reason_llm": None, "policy": policy, "fallback": fallback,
@@ -201,6 +206,7 @@ def act(action, body):
             elif u["state"] != "stock":
                 raise ActionError(409, "Cannot cancel dispatched movement")
             result["state"] = "rejected"
+            db.execute("INSERT OR REPLACE INTO decisions VALUES(?,?)", (unit_id, "rejected"))
         elif action == "quarantine":
             db.execute("UPDATE units SET safety='quarantined',version=version+1 WHERE id=?", (unit_id,))
             result["state"] = "quarantined"
@@ -262,12 +268,51 @@ class Handler(BaseHTTPRequestHandler):
                 policy = parse_qs(path.query).get("policy", ["expiry_aware"])[0]
                 self.respond(200, {"suggestions": suggestions(policy), "synthetic": True})
             elif path.path == "/audit":
+                params = parse_qs(path.query)
                 with connect() as db:
-                    records = [dict(r) for r in db.execute("SELECT * FROM audit ORDER BY at DESC LIMIT 100")]
+                    records = [dict(r) for r in db.execute("SELECT * FROM audit ORDER BY rowid DESC LIMIT 500")]
+                for field in ("actor", "from", "to"):
+                    if field in params:
+                        column = "at" if field in ("from", "to") else "actor"
+                        value = params[field][0]
+                        records = [r for r in records if (r[column] >= value if field == "from"
+                                    else r[column] <= value if field == "to" else r[column] == value)]
+                for key in ("unit_id", "move_id"):
+                    if key in params:
+                        value = params[key][0]
+                        records = [r for r in records if json.loads(r["payload"]).get(key) == value
+                                   or json.loads(r["result"]).get(key) == value]
                 self.respond(200, {"events": records})
             elif path.path == "/evaluation/forecast":
                 from forecasting.evaluate import evaluate
                 self.respond(200, evaluate())
+            elif path.path == "/settings":
+                self.respond(200, {"scope": "synthetic demo", "component": "RBC",
+                                   "blood_groups": sorted(GROUPS), "sender_reserve_days": 2,
+                                   "planning_horizon_days": 7, "lease_minutes": 30,
+                                   "language": "English", "country": "Kenya-modelled synthetic data",
+                                   "editable": False})
+            elif path.path == "/map/stock":
+                with connect() as db:
+                    counts = {r[0]: r[1] for r in db.execute("SELECT site,COUNT(*) FROM units WHERE state='stock' AND safety='cleared' GROUP BY site")}
+                sites = [{"facility_id": r["facility_id"], "name": r["name"],
+                          "lat": float(r["lat"]), "lon": float(r["lon"]),
+                          "connectivity": r["connectivity"], "eligible_rbc_stock": counts.get(r["facility_id"], 0)}
+                         for r in rows("facilities.csv") if r["lat"] and r["lon"]]
+                self.respond(200, {"as_of": AS_OF.isoformat(), "synthetic": True, "sites": sites})
+            elif path.path == "/flags/cold-chain":
+                flags = []
+                for r in rows("power_outages.csv"):
+                    if (r["backup_power_engaged"].lower() == "false"
+                        and r["start_time"][:10] == "2026-10-31"):
+                        flags.append({"facility_id": r["facility_id"], "at": r["start_time"],
+                                      "kind": "outage_without_backup", "clinical_status": "review_required"})
+                self.respond(200, {"as_of": AS_OF.isoformat(), "synthetic": True,
+                                   "flags": flags, "scope": "recent outage flags only; logger gaps not evaluated"})
+            elif path.path == "/alerts":
+                with connect() as db:
+                    messages = [dict(r) for r in db.execute("SELECT * FROM alerts ORDER BY at DESC LIMIT 20")]
+                self.respond(200, {"synthetic": True, "messages": messages})
             elif path.path.startswith("/moves/"):
                 with connect() as db:
                     m = db.execute("SELECT * FROM moves WHERE id=?", (path.path[7:],)).fetchone()
@@ -281,7 +326,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
             action = self.path.strip("/")
-            self.respond(200, act(action, body))
+            if action == "alerts/simulate":
+                if body.get("actor") not in ("demo-coordinator", "demo-sender", "demo-receiver"):
+                    raise ActionError(422, "Demo officer recipient only")
+                if not isinstance(body.get("message"), str) or not 0 < len(body["message"]) <= 240:
+                    raise ActionError(422, "Short message required")
+                item = {"id": str(uuid.uuid4()), "actor": body["actor"],
+                        "message": body["message"], "at": dt.datetime.now(dt.timezone.utc).isoformat()}
+                with connect() as db:
+                    db.execute("INSERT INTO alerts VALUES(?,?,?,?)", tuple(item.values()))
+                self.respond(200, {"simulated": True, "sent": False, **item})
+            else:
+                self.respond(200, act(action, body))
         except ActionError as exc:
             self.respond(exc.status, {"error": exc.message})
         except (ValueError, KeyError, TypeError) as exc:
