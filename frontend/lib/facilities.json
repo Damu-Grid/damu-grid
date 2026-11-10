@@ -1,0 +1,425 @@
+[
+ {
+  "id": "RBTC-NBO",
+  "name": "Nairobi Regional Blood Transfusion Centre",
+  "type": "regional_blood_centre",
+  "county": "Nairobi",
+  "lat": -1.3,
+  "lon": 36.807,
+  "connectivity": "4G"
+ },
+ {
+  "id": "RBTC-MSA",
+  "name": "Mombasa Regional Blood Transfusion Centre",
+  "type": "regional_blood_centre",
+  "county": "Mombasa",
+  "lat": -4.05,
+  "lon": 39.668,
+  "connectivity": "4G"
+ },
+ {
+  "id": "RBTC-KSM",
+  "name": "Kisumu Regional Blood Transfusion Centre",
+  "type": "regional_blood_centre",
+  "county": "Kisumu",
+  "lat": -0.091,
+  "lon": 34.768,
+  "connectivity": "4G"
+ },
+ {
+  "id": "RBTC-ELD",
+  "name": "Eldoret Regional Blood Transfusion Centre",
+  "type": "regional_blood_centre",
+  "county": "Uasin Gishu",
+  "lat": 0.514,
+  "lon": 35.27,
+  "connectivity": "4G"
+ },
+ {
+  "id": "RBTC-NKR",
+  "name": "Nakuru Regional Blood Transfusion Centre",
+  "type": "regional_blood_centre",
+  "county": "Nakuru",
+  "lat": -0.303,
+  "lon": 36.08,
+  "connectivity": "4G"
+ },
+ {
+  "id": "RBTC-EMB",
+  "name": "Embu Regional Blood Transfusion Centre",
+  "type": "regional_blood_centre",
+  "county": "Embu",
+  "lat": -0.531,
+  "lon": 37.45,
+  "connectivity": "4G"
+ },
+ {
+  "id": "SAT-NYR",
+  "name": "Nyeri Satellite Blood Centre",
+  "type": "satellite_blood_centre",
+  "county": "Nyeri",
+  "lat": -0.42,
+  "lon": 36.951,
+  "connectivity": "4G"
+ },
+ {
+  "id": "SAT-KAK",
+  "name": "Kakamega Satellite Blood Centre",
+  "type": "satellite_blood_centre",
+  "county": "Kakamega",
+  "lat": 0.283,
+  "lon": 34.752,
+  "connectivity": "4G"
+ },
+ {
+  "id": "SAT-KSI",
+  "name": "Kisii Satellite Blood Centre",
+  "type": "satellite_blood_centre",
+  "county": "Kisii",
+  "lat": -0.681,
+  "lon": 34.766,
+  "connectivity": "3G"
+ },
+ {
+  "id": "SAT-GSA",
+  "name": "Garissa Satellite Blood Centre",
+  "type": "satellite_blood_centre",
+  "county": "Garissa",
+  "lat": -0.453,
+  "lon": 39.646,
+  "connectivity": "3G"
+ },
+ {
+  "id": "SAT-MKS",
+  "name": "Machakos Satellite Blood Centre",
+  "type": "satellite_blood_centre",
+  "county": "Machakos",
+  "lat": -1.517,
+  "lon": 37.263,
+  "connectivity": "4G"
+ },
+ {
+  "id": "SAT-MRU",
+  "name": "Meru Satellite Blood Centre",
+  "type": "satellite_blood_centre",
+  "county": "Meru",
+  "lat": 0.047,
+  "lon": 37.649,
+  "connectivity": "4G"
+ },
+ {
+  "id": "SAT-KTL",
+  "name": "Kitale Satellite Blood Centre",
+  "type": "satellite_blood_centre",
+  "county": "Trans Nzoia",
+  "lat": 1.016,
+  "lon": 35.006,
+  "connectivity": "3G"
+ },
+ {
+  "id": "SAT-LDW",
+  "name": "Lodwar Satellite Blood Centre",
+  "type": "satellite_blood_centre",
+  "county": "Turkana",
+  "lat": 3.119,
+  "lon": 35.597,
+  "connectivity": "2G"
+ },
+ {
+  "id": "SAT-MLD",
+  "name": "Malindi Satellite Blood Centre",
+  "type": "satellite_blood_centre",
+  "county": "Kilifi",
+  "lat": -3.219,
+  "lon": 40.117,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-001",
+  "name": "National Referral Hospital (Nairobi)",
+  "type": "national_referral",
+  "county": "Nairobi",
+  "lat": -1.301,
+  "lon": 36.807,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-002",
+  "name": "Eastlands County Hospital",
+  "type": "county_hospital",
+  "county": "Nairobi",
+  "lat": -1.283,
+  "lon": 36.88,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-003",
+  "name": "City Maternity Hospital",
+  "type": "maternity_hospital",
+  "county": "Nairobi",
+  "lat": -1.276,
+  "lon": 36.837,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-004",
+  "name": "Westlands Private Hospital",
+  "type": "private_hospital",
+  "county": "Nairobi",
+  "lat": -1.265,
+  "lon": 36.805,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-005",
+  "name": "Kiambu County Referral Hospital",
+  "type": "county_referral",
+  "county": "Kiambu",
+  "lat": -1.171,
+  "lon": 36.835,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-006",
+  "name": "Thika Level 5 Hospital",
+  "type": "county_referral",
+  "county": "Kiambu",
+  "lat": -1.039,
+  "lon": 37.083,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-007",
+  "name": "Kajiado County Referral Hospital",
+  "type": "county_referral",
+  "county": "Kajiado",
+  "lat": -1.852,
+  "lon": 36.776,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-008",
+  "name": "Coast Teaching and Referral Hospital",
+  "type": "county_referral",
+  "county": "Mombasa",
+  "lat": -4.058,
+  "lon": 39.672,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-009",
+  "name": "Kilifi County Hospital",
+  "type": "county_referral",
+  "county": "Kilifi",
+  "lat": -3.631,
+  "lon": 39.849,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-010",
+  "name": "Msambweni County Referral Hospital",
+  "type": "county_referral",
+  "county": "Kwale",
+  "lat": -4.468,
+  "lon": 39.48,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-011",
+  "name": "Voi County Hospital",
+  "type": "county_hospital",
+  "county": "Taita Taveta",
+  "lat": -3.396,
+  "lon": 38.556,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-012",
+  "name": "Kisumu County Referral Hospital",
+  "type": "county_referral",
+  "county": "Kisumu",
+  "lat": -0.098,
+  "lon": 34.762,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-013",
+  "name": "Homa Bay County Referral Hospital",
+  "type": "county_referral",
+  "county": "Homa Bay",
+  "lat": -0.527,
+  "lon": 34.457,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-014",
+  "name": "Siaya County Referral Hospital",
+  "type": "county_referral",
+  "county": "Siaya",
+  "lat": 0.061,
+  "lon": 34.288,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-015",
+  "name": "Busia County Referral Hospital",
+  "type": "county_referral",
+  "county": "Busia",
+  "lat": 0.46,
+  "lon": 34.111,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-016",
+  "name": "Migori County Referral Hospital",
+  "type": "county_referral",
+  "county": "Migori",
+  "lat": -1.063,
+  "lon": 34.473,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-017",
+  "name": "Lake Region Mission Hospital",
+  "type": "mission_hospital",
+  "county": "Kisii",
+  "lat": -0.677,
+  "lon": 34.78,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-018",
+  "name": "Western Rift Teaching and Referral Hospital",
+  "type": "national_referral",
+  "county": "Uasin Gishu",
+  "lat": 0.517,
+  "lon": 35.283,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-019",
+  "name": "Kapsabet County Hospital",
+  "type": "county_hospital",
+  "county": "Nandi",
+  "lat": 0.204,
+  "lon": 35.105,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-020",
+  "name": "Iten County Hospital",
+  "type": "county_hospital",
+  "county": "Elgeyo Marakwet",
+  "lat": 0.67,
+  "lon": 35.508,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-021",
+  "name": "Lodwar County Referral Hospital",
+  "type": "county_referral",
+  "county": "Turkana",
+  "lat": 3.12,
+  "lon": 35.598,
+  "connectivity": "2G"
+ },
+ {
+  "id": "HSP-022",
+  "name": "Nakuru County Referral Hospital",
+  "type": "county_referral",
+  "county": "Nakuru",
+  "lat": -0.288,
+  "lon": 36.068,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-023",
+  "name": "Naivasha Sub-County Hospital",
+  "type": "sub_county_hospital",
+  "county": "Nakuru",
+  "lat": -0.717,
+  "lon": 36.432,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-024",
+  "name": "Narok County Referral Hospital",
+  "type": "county_referral",
+  "county": "Narok",
+  "lat": -1.08,
+  "lon": 35.871,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-025",
+  "name": "Highlands Private Hospital",
+  "type": "private_hospital",
+  "county": "Nakuru",
+  "lat": -0.281,
+  "lon": 36.071,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-026",
+  "name": "Kericho County Referral Hospital",
+  "type": "county_referral",
+  "county": "Kericho",
+  "lat": -0.369,
+  "lon": 35.284,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-027",
+  "name": "Embu Level 5 Hospital",
+  "type": "county_referral",
+  "county": "Embu",
+  "lat": -0.532,
+  "lon": 37.457,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-028",
+  "name": "Meru Teaching and Referral Hospital",
+  "type": "county_referral",
+  "county": "Meru",
+  "lat": 0.049,
+  "lon": 37.655,
+  "connectivity": "4G"
+ },
+ {
+  "id": "HSP-029",
+  "name": "Kitui County Referral Hospital",
+  "type": "county_referral",
+  "county": "Kitui",
+  "lat": -1.367,
+  "lon": 38.011,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-030",
+  "name": "Isiolo County Referral Hospital",
+  "type": "county_referral",
+  "county": "Isiolo",
+  "lat": 0.354,
+  "lon": 37.582,
+  "connectivity": "3G"
+ },
+ {
+  "id": "HSP-031",
+  "name": "Marsabit County Referral Hospital",
+  "type": "county_referral",
+  "county": "Marsabit",
+  "lat": 2.334,
+  "lon": 37.99,
+  "connectivity": "2G"
+ },
+ {
+  "id": "HSP-032",
+  "name": "Garissa County Referral Hospital",
+  "type": "county_referral",
+  "county": "Garissa",
+  "lat": -0.455,
+  "lon": 39.64,
+  "connectivity": "3G"
+ }
+]

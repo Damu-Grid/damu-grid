@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "build:facilities": "node scripts/build-facilities.mjs",
     "test:e2e": "playwright test",
     "test:prototype": "playwright test -c playwright.prototype.config.ts"
   },
