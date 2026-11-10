@@ -256,7 +256,9 @@ export function ActionDialog({
                     ? "Not allowed"
                     : error.status === 422
                       ? "Failed eligibility checks"
-                      : "Could not submit"}
+                      : error.status === 503
+                        ? "Not available on the server yet"
+                        : "Could not submit"}
               </AlertTitle>
               <AlertDescription>
                 {error.message}

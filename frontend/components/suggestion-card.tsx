@@ -65,7 +65,7 @@ export function OutcomeNote({
   );
 }
 
-function SiteName({ id, name }: { id: string; name?: string }) {
+function SiteName({ id, name }: { id: string; name?: string | null }) {
   return (
     <span>
       {name ? `${name} ` : ""}

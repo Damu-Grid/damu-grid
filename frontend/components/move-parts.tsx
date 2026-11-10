@@ -71,7 +71,8 @@ export function AuditTimeline({ events }: { events: AuditEvent[] }) {
         <li key={e.event_id ?? i} className="text-sm">
           <p>
             <time className="font-mono text-xs text-muted-foreground">{fmtTime(e.ts)} EAT</time>{" "}
-            <strong>{e.action}</strong> by {e.actor_id} ({e.role})
+            <strong>{e.action}</strong> by {e.actor_id}
+            {e.role && ` (${e.role})`}
           </p>
           {(e.from_state || e.to_state) && (
             <p className="text-muted-foreground">

@@ -1,14 +1,15 @@
 // One interface for the screens, two backends behind it:
-//  - "spec": the contract in docs/API_SPEC.md (planned FastAPI; e2e mock)
-//  - "prototype": Blessings' backend/prototype.py (PR #50)
-// Choose with NEXT_PUBLIC_BACKEND=spec|prototype (default prototype).
+//  - "fastapi" (alias "spec"): the team API in backend/app (#51), docs/API_SPEC.md
+//  - "prototype": Blessings' backend/prototype.py (#50)
+// Choose with NEXT_PUBLIC_BACKEND=fastapi|prototype (default prototype).
 import { z } from "zod";
-import { apiFetch } from "./client";
+import { ApiError, apiFetch } from "./client";
 import {
   ActionResultSchema,
   MoveListSchema,
   MoveSchema,
   SuggestionListSchema,
+  SuggestionSchema,
   type ActionResult,
   type AuditEvent,
   type ColdChainEvidence,
@@ -48,25 +49,144 @@ export interface Backend {
 }
 
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) });
-const query = (states: string[]) => states.map((s) => `state=${encodeURIComponent(s)}`).join("&");
+
+// ---------------------------------------------------------------------------
+// FastAPI backend (backend/app, #51). Request models are strict (extra fields
+// are rejected), moves report `status`, and there is no move list endpoint yet.
+
+const ApiMoveSchema = z.object({
+  move_id: z.string(),
+  suggestion_id: z.string(),
+  unit_ids: z.array(z.string()),
+  from_facility_id: z.string(),
+  to_facility_id: z.string(),
+  status: z.string(),
+  lease_expires_at: z.string().nullable().optional(),
+});
+type ApiMove = z.infer<typeof ApiMoveSchema>;
+
+const ApiAuditSchema = z.array(
+  z.object({
+    event_id: z.string(),
+    event_type: z.string(),
+    occurred_at: z.string(),
+    actor_id: z.string().nullable(),
+    move_id: z.string().nullable(),
+    unit_id: z.string().nullable(),
+    payload: z.record(z.string(), z.unknown()).default({}),
+  }),
+);
+type ApiAuditRow = z.infer<typeof ApiAuditSchema>[number];
+
+const ApiActionResultSchema = z
+  .object({ status: z.string().optional() })
+  .passthrough()
+  .transform((r) => ({ ...r, state: r.status }));
+
+/** One audit entry per move event; the API writes one row per unit. */
+function apiAuditEvents(rows: ApiAuditRow[]): AuditEvent[] {
+  const seen = new Set<string>();
+  return rows
+    .filter((r) => {
+      const key = `${r.event_type}|${r.occurred_at}`;
+      return seen.has(key) ? false : (seen.add(key), true);
+    })
+    .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
+    .map((r) => ({
+      event_id: r.event_id,
+      ts: r.occurred_at,
+      actor_id: r.actor_id ?? "system",
+      role: "",
+      action: r.event_type.replace(/^(decision|move)_/, "").replace(/_/g, " "),
+      to_state: typeof r.payload.status === "string" ? r.payload.status : null,
+      reason: typeof r.payload.reason === "string" && r.payload.reason ? r.payload.reason : null,
+    }));
+}
+
+async function apiToMove(m: ApiMove, audit: ApiAuditRow[]): Promise<Move> {
+  // Moves carry no blood group or expiry: read them from the stored suggestion.
+  const s = await apiFetch(
+    `/suggestions/${encodeURIComponent(m.suggestion_id)}`,
+    SuggestionSchema,
+  ).catch(() => null);
+  return MoveSchema.parse({
+    move_id: m.move_id,
+    suggestion_id: m.suggestion_id,
+    state: m.status,
+    component: s?.component ?? "(component not reported)",
+    blood_group: s?.blood_group ?? "(group not reported)",
+    unit_ids: m.unit_ids,
+    from_facility_id: m.from_facility_id,
+    to_facility_id: m.to_facility_id,
+    expiry_date: s?.expiry_date,
+    typical_travel_hours: s?.typical_travel_hours ?? null,
+    lease_expires_at: m.lease_expires_at ?? null,
+    audit: apiAuditEvents(audit.filter((r) => r.move_id === m.move_id)),
+  });
+}
+
+const fetchApiMove = (id: string) => apiFetch(`/moves/${encodeURIComponent(id)}`, ApiMoveSchema);
+const fetchApiAudit = () => apiFetch("/audit", ApiAuditSchema);
 
 const specBackend: Backend = {
   name: "spec",
   listSuggestions: (policy) => apiFetch(`/suggestions?policy=${policy}`, SuggestionListSchema),
+
   decide: (action, s, input) =>
     apiFetch(
       `/suggestions/${encodeURIComponent(s.suggestion_id)}/${action}`,
-      ActionResultSchema,
-      post({ ...input, unit_version: s.unit_version }),
+      ApiActionResultSchema,
+      post({
+        event_id: input.event_id,
+        actor_id: input.actor_id,
+        role: input.role,
+        reason: input.reason,
+        unit_version: s.unit_version ?? 0,
+        ...(action === "change" && { unit_ids: input.unit_ids, to_facility_id: input.to_facility_id }),
+      }),
     ),
-  listMoves: (states) => apiFetch(`/moves?${query(states)}`, MoveListSchema),
-  getMove: (id) => apiFetch(`/moves/${encodeURIComponent(id)}`, MoveSchema),
-  moveAction: (action, m, input) =>
-    apiFetch(
+
+  async listMoves(states) {
+    // Use a list endpoint if the API grows one; until then, rebuild from /audit.
+    try {
+      return await apiFetch(
+        `/moves?${states.map((s) => `status=${encodeURIComponent(s)}`).join("&")}`,
+        MoveListSchema,
+      );
+    } catch (error) {
+      if (!(error instanceof ApiError) || ![404, 405].includes(error.status)) throw error;
+    }
+    const audit = await fetchApiAudit();
+    const ids = [...new Set(audit.map((r) => r.move_id).filter((id): id is string => !!id))];
+    const moves = await Promise.all(ids.map(fetchApiMove));
+    return Promise.all(moves.filter((m) => states.includes(m.status)).map((m) => apiToMove(m, audit)));
+  },
+
+  async getMove(id) {
+    const [m, audit] = await Promise.all([
+      fetchApiMove(id),
+      apiFetch(`/audit?move_id=${encodeURIComponent(id)}`, ApiAuditSchema),
+    ]);
+    return apiToMove(m, audit);
+  },
+
+  moveAction: (action, m, input) => {
+    const temp = input.coolbox_max_temp_c;
+    return apiFetch(
       `/moves/${encodeURIComponent(m.move_id)}/${action}`,
-      MoveSchema,
-      post({ ...input, version: m.version }),
-    ),
+      ApiActionResultSchema,
+      post({
+        event_id: input.event_id,
+        actor_id: input.actor_id,
+        role: input.role,
+        reason: input.note ?? "",
+        ...(action === "receive" && {
+          cold_chain_evidence_complete:
+            input.cold_chain_evidence === "ok" && (temp == null || temp <= 10),
+        }),
+      }),
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -258,4 +378,6 @@ const prototypeBackend: Backend = {
 };
 
 export const backend: Backend =
-  process.env.NEXT_PUBLIC_BACKEND === "spec" ? specBackend : prototypeBackend;
+  process.env.NEXT_PUBLIC_BACKEND === "fastapi" || process.env.NEXT_PUBLIC_BACKEND === "spec"
+    ? specBackend
+    : prototypeBackend;
