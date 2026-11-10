@@ -88,7 +88,7 @@ jobs:
           ./gitleaks detect --source . --redact --verbose --no-banner
       - name: Starter dataset unchanged
         run: cd data/raw && sha256sum -c --quiet SHA256SUMS
-      - name: No large files outside data/raw
+      - name: No large files outside data/raw and data/enhanced
         run: |
-          big=$(git ls-files -z | xargs -0 -I{} sh -c 'case "{}" in data/raw/*) ;; *) [ -f "{}" ] && [ $(stat -c%s "{}") -gt 5242880 ] && echo "{}";; esac' || true)
-          if [ -n "$big" ]; then echo "Files over 5 MB outside data/raw:"; echo "$big"; exit 1; fi
+          big=$(git ls-files -z | xargs -0 -I{} sh -c 'case "{}" in data/raw/*|data/enhanced/*) ;; *) [ -f "{}" ] && [ $(stat -c%s "{}") -gt 5242880 ] && echo "{}";; esac' || true)
+          if [ -n "$big" ]; then echo "Files over 5 MB outside data/raw and data/enhanced:"; echo "$big"; exit 1; fi

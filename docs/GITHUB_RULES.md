@@ -51,7 +51,7 @@ Every pull request and every push to `main` runs `.github/workflows/ci.yml`. Eac
 
 - **Python lint and tests:** `ruff check` on all Python outside `data/raw/`, and `pytest` once `pyproject.toml` and tests exist. Run locally with `uv run ruff check .` and `uv run pytest`.
 - **Frontend:** once `frontend/package.json` exists, installs with pnpm and runs `lint`, `typecheck` and `test` if those scripts exist, then `build`. Run locally with `cd frontend && pnpm lint && pnpm build`.
-- **Secrets and dataset guard:** fails if a `.env` file (other than `.env.example`) is committed, if gitleaks finds a secret, if any CSV in `data/raw/` differs from `data/raw/SHA256SUMS`, or if a file over 5 MB is added outside `data/raw/`.
+- **Secrets and dataset guard:** fails if a `.env` file (other than `.env.example`) is committed, if gitleaks finds a secret, if any CSV in `data/raw/` differs from `data/raw/SHA256SUMS`, or if a file over 5 MB is added outside `data/raw/` and `data/enhanced/` (both data folders are exempt from the size limit).
 
 The official starter CSVs are read-only. Derived data goes to `data/processed/` (git-ignored). If the organisers ship a new dataset version, update the CSVs and regenerate the checksums in the same PR with `cd data/raw && sha256sum *.csv > SHA256SUMS`.
 
