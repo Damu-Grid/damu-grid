@@ -12,7 +12,10 @@ CSVs); new `dg_` records must carry an explicit offset, e.g. 2026-11-10T21:00:00
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -20,6 +23,8 @@ import pandas as pd
 from pipeline.schema import TABLES
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "processed" / "damu_grid.sqlite"
+# Bump when a table or constraint changes; older databases are refused, not silently reused.
+SCHEMA_VERSION = 1
 
 _SQL_TYPE = {"str": "TEXT", "int": "INTEGER", "float": "REAL", "bool": "INTEGER",
              "date": "TEXT", "datetime": "TEXT"}
@@ -121,6 +126,9 @@ CREATE TABLE IF NOT EXISTS dg_audit_events (
     prev_hash TEXT,
     hash TEXT NOT NULL
 );
+CREATE TRIGGER IF NOT EXISTS dg_audit_chain_link BEFORE INSERT ON dg_audit_events
+WHEN NEW.prev_hash IS NOT (SELECT hash FROM dg_audit_events ORDER BY seq DESC LIMIT 1)
+BEGIN SELECT RAISE(ABORT, 'dg_audit_events prev_hash must be the hash of the last event'); END;
 CREATE TRIGGER IF NOT EXISTS dg_audit_no_update BEFORE UPDATE ON dg_audit_events
 BEGIN SELECT RAISE(ABORT, 'dg_audit_events is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS dg_audit_no_delete BEFORE DELETE ON dg_audit_events
@@ -148,15 +156,74 @@ def official_ddl(name: str) -> str:
     return f"CREATE TABLE IF NOT EXISTS {name} (\n" + ",\n".join(cols) + "\n);"
 
 
+class SchemaVersionError(RuntimeError):
+    """The database was built by a different version of this schema: rebuild it."""
+
+
 def create_schema(conn: sqlite3.Connection) -> None:
-    """Create every table, index and trigger. Safe to run twice."""
+    """Create every table, index and trigger. Safe to run twice on the same schema version."""
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version not in (0, SCHEMA_VERSION):
+        raise SchemaVersionError(f"database schema v{version}, code expects v{SCHEMA_VERSION}: "
+                                 "delete data/processed/damu_grid.sqlite and run python -m pipeline build")
     conn.execute("PRAGMA foreign_keys = ON")
     for name in TABLES:
         conn.execute(official_ddl(name))
     conn.executescript(DG_SCHEMA)
     for stmt in _INDEXES:
         conn.execute(stmt)
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
+
+
+_AUDIT_FIELDS = ("event_id", "at", "actor_id", "role", "action", "move_id", "unit_id", "from_state",
+                 "to_state", "reason", "payload_json", "prev_hash")
+
+
+def _audit_hash(row: dict) -> str:
+    canonical = json.dumps({k: row[k] for k in _AUDIT_FIELDS}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def append_audit_event(conn: sqlite3.Connection, *, event_id: str, at: str, actor_id: str, role: str,
+                       action: str, move_id: str | None = None, unit_id: str | None = None,
+                       from_state: str | None = None, to_state: str | None = None,
+                       reason: str | None = None, payload: dict | None = None) -> str:
+    """Append one event to the hash-chained audit trail and return its hash.
+
+    `at` must carry a UTC offset (e.g. 2026-11-10T21:00:00+03:00). Re-sending the same `event_id`
+    with the same content is a no-op (offline sync retries); with different content it fails.
+    Call it inside the same transaction as the state change it records."""
+    if datetime.fromisoformat(at).tzinfo is None:
+        raise ValueError("audit timestamps need an explicit offset, e.g. +03:00")
+    payload_json = None if payload is None else json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    existing = conn.execute("SELECT * FROM dg_audit_events WHERE event_id = ?", (event_id,)).fetchone()
+    last = conn.execute("SELECT hash FROM dg_audit_events ORDER BY seq DESC LIMIT 1").fetchone()
+    row = dict(event_id=event_id, at=at, actor_id=actor_id, role=role, action=action, move_id=move_id,
+               unit_id=unit_id, from_state=from_state, to_state=to_state, reason=reason,
+               payload_json=payload_json, prev_hash=last[0] if last else None)
+    if existing is not None:
+        cols = [d[0] for d in conn.execute("SELECT * FROM dg_audit_events LIMIT 0").description]
+        stored = dict(zip(cols, existing, strict=True))
+        if all(stored[k] == row[k] for k in _AUDIT_FIELDS if k != "prev_hash"):
+            return stored["hash"]
+        raise sqlite3.IntegrityError(f"event_id {event_id} already recorded with different content")
+    row["hash"] = _audit_hash(row)
+    conn.execute(f"INSERT INTO dg_audit_events ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
+                 tuple(row.values()))
+    return row["hash"]
+
+
+def verify_audit_chain(conn: sqlite3.Connection) -> tuple[bool, int | None]:
+    """Recompute every hash in order. Returns (True, None) or (False, seq of the first bad event)."""
+    cur = conn.execute(f"SELECT seq, hash, {', '.join(_AUDIT_FIELDS)} FROM dg_audit_events ORDER BY seq")
+    prev = None
+    for seq, stored_hash, *values in cur:
+        row = dict(zip(_AUDIT_FIELDS, values, strict=True))
+        if row["prev_hash"] != prev or _audit_hash(row) != stored_hash:
+            return False, seq
+        prev = stored_hash
+    return True, None
 
 
 def _to_sql_frame(df: pd.DataFrame, name: str) -> pd.DataFrame:

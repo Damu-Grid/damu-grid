@@ -40,7 +40,9 @@ Safety constraints enforced by the database itself:
 
 - a unit can be in at most one active move (`Reserved`, `Dispatched`, `InTransit`, `ReceivedHeld`): a second accept fails;
 - a move cannot go from a site to itself, and only the documented states are accepted;
-- audit rows cannot be edited or deleted.
+- audit rows cannot be edited or deleted, and each new row must point to the hash of the last one.
+
+For the API: write audit rows with `pipeline.store.append_audit_event(...)` in the same transaction as the state change (SHA-256 hash chain, idempotent on `event_id`, timestamps must carry `+03:00`), and check the trail with `verify_audit_chain(conn)`. The schema carries `PRAGMA user_version = 1`; a database built by another version is refused instead of silently reused.
 
 No model score is stored in `dg_moves`: recommendations stay out of the movement tables.
 
