@@ -46,6 +46,22 @@ Complete **before Wednesday 11 November 2026, 12:00 EAT**. Prefer submit by 11:0
 - [ ] Dataset terms respected: synthetic labelled; official CSVs not presented as real Kenyan facts.
 - [ ] Never claimed clinical clearance or transfusion decision support.
 
+### Status (pipeline checks, Tue 10 Nov 2026, evening EAT)
+
+Checked on branch `feat/DG-01-pipeline`; re-run on `main` after merge and before submit.
+
+| Item | Status | Owner / blocker |
+|---|---|---|
+| No secrets | Passed: no `.env` tracked (only `.env.example`), no key-like strings outside `data/raw/` | Re-check on `main` before making the repo public |
+| Dataset untouched | Passed: all 11 committed CSVs match `data/raw/SHA256SUMS` | On Windows with `core.autocrlf=true` the working copy shows CRLF and `sha256sum -c` fails locally; the committed bytes are unchanged |
+| No file over 5 MB outside `data/raw/` | Passed (`data/processed/` is gitignored) | — |
+| Incremental commits in the window | Pipeline: one commit per issue (DG-01 to DG-08, DG-06, DG-38) | Each teammate for their area |
+| Architecture diagram | Mermaid diagram in the root README | Export an image if the slides need one (Dan) |
+| README run commands and data facts | Pipeline part filled | API and frontend commands (Timi, Dan) |
+| Baseline results | Blocked | Forecast evaluation (Blessings, DG-12/DG-13) |
+| AI-tool declaration | Blocked | Every teammate lists the tools they actually used |
+| Video, slides, Friday attendance, public repo, form speaker | Not started | Dan (video, slides); team decision at the 06:00 check-in |
+
 One person (agreed at the 06:00 check-in) fills the form. Everyone else stays off the submit button. After submit, do not assume late edits will be accepted.
 
 ## Friday session
