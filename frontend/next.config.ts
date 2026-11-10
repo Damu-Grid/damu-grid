@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
   // Separate build folders let tests and CI builds run while `pnpm dev` is up;
   // sharing `.next` makes the running dev server return 500s.
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  // The dev badge covers the rail's "Switch role" button and would show in the demo video.
+  devIndicators: false,
   async rewrites() {
     return [{ source: "/api/backend/:path*", destination: `${BACKEND_URL}/:path*` }];
   },

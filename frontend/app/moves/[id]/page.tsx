@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AuditTimeline, MoveCard } from "@/components/move-parts";
+import { PageHeader } from "@/components/page-header";
 import { ApiError } from "@/lib/api/client";
 import { useMove } from "@/lib/api/hooks";
 import { stateKey } from "@/lib/api/schemas";
@@ -16,11 +17,13 @@ export default function MovePage({ params }: { params: Promise<{ id: string }> }
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link href="/queue" className="text-sm underline">
+      <div className="space-y-3">
+        <Link href="/queue" className="text-sm text-blue underline">
           ← Review queue
         </Link>
-        <h1 className="text-2xl font-semibold">Move {moveId}</h1>
+        <PageHeader title={`Move ${moveId}`}>
+          <p>State and the full audit trail of who did what, and when.</p>
+        </PageHeader>
       </div>
 
       {apiError && (

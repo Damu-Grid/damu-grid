@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { PageHeader } from "@/components/page-header";
 import { PlaceholderBanner } from "@/components/placeholder-banner";
 import { OutcomeNote, SuggestionCard } from "@/components/suggestion-card";
 import { ApiError } from "@/lib/api/client";
@@ -28,23 +29,24 @@ export default function QueuePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Review queue</h1>
-          <p className="text-muted-foreground">
-            Suggested red cell transfers. Nothing moves until you accept.
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Switch id="model-off" checked={modelOff} onCheckedChange={setModelOff} />
-            <Label htmlFor="model-off">Model off (fallback rule)</Label>
+      <PageHeader
+        title="Review queue"
+        actions={
+          <div className="flex items-center gap-4 rounded-2xl border border-white/90 bg-card px-3 py-2 shadow-card">
+            <div className="flex items-center gap-2">
+              <Switch id="model-off" checked={modelOff} onCheckedChange={setModelOff} />
+              <Label htmlFor="model-off">Model off (fallback rule)</Label>
+            </div>
+            <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+              {isFetching ? "Refreshing…" : "Refresh"}
+            </Button>
           </div>
-          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </Button>
-        </div>
-      </div>
+        }
+      >
+        <p>
+          Suggested red cell transfers. <b>Damu Grid suggests; a person decides every move.</b>
+        </p>
+      </PageHeader>
 
       {estimatorDown && !modelOff && (
         <Alert>

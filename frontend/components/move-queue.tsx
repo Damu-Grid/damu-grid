@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { MoveActionDialog } from "@/components/move-action-dialog";
+import { PageHeader } from "@/components/page-header";
 import { LeaseNote, MoveCard, useLeaseMinutesLeft } from "@/components/move-parts";
 import { ApiError } from "@/lib/api/client";
 import { useMoves } from "@/lib/api/hooks";
@@ -62,10 +63,7 @@ export function MoveQueue({ action, title, intro }: { action: MoveAction; title:
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">{title}</h1>
-        <div className="text-muted-foreground">{intro}</div>
-      </div>
+      <PageHeader title={title}>{intro}</PageHeader>
 
       {apiError && (
         <Alert variant={apiError.status === 0 || apiError.status === 404 ? "default" : "destructive"}>
