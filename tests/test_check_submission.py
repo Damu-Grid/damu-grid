@@ -16,6 +16,8 @@ check = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(check)
 
 CSV = b"a,b\n1,2\n"
+# A made-up key assignment, split in the source so secret scanners do not mistake it for a real one.
+FAKE_KEY_ASSIGNMENT = "API_" "KEY" ' = "' "abcd1234efgh5678ijkl" '"'
 
 
 def test_env_files_are_caught_but_the_example_is_allowed():
@@ -28,7 +30,7 @@ def test_env_files_are_caught_but_the_example_is_allowed():
 
 def test_secret_shapes_are_caught():
     """Typical key, token and private-key shapes are recognised."""
-    assert check.find_secrets('API_KEY = "abcd1234efgh5678ijkl"')
+    assert check.find_secrets(FAKE_KEY_ASSIGNMENT)
     assert check.find_secrets("token: 'ghp_" + "a" * 36 + "'")
     assert check.find_secrets("-----BEGIN PRIVATE KEY-----")
 
@@ -97,7 +99,7 @@ def test_env_file_and_big_file_are_reported(tmp_path, run_in):
 
 def test_secret_in_a_scanned_file_is_reported(tmp_path, run_in):
     """A key-shaped string in a .sh file (a newly scanned type) fails."""
-    _repo(tmp_path, {"data/raw/units.csv": CSV, "run.sh": b'API_KEY="abcd1234efgh5678ijkl"\n'})
+    _repo(tmp_path, {"data/raw/units.csv": CSV, "run.sh": FAKE_KEY_ASSIGNMENT.encode() + b"\n"})
     code, out = run_in()
     assert code == 1 and "possible secret in run.sh" in out
 
