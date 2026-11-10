@@ -8,6 +8,8 @@ This README follows the official hackathon README template. Results and links wi
 
 Planning docs for teammates and AI coding agents are in `docs/` and `AGENTS.md`.
 
+The [expanded solution integration brief](docs/EXPANDED_SOLUTION_INTEGRATION.md) maps the strongest local research ideas to the current branches, safety gates and evidence still required before any wider claim reaches the demo.
+
 ## The problem
 
 The primary user is a **regional stock coordinator** at a regional blood transfusion centre. Today that person must reconcile stock reports, see which hospitals are short, find units that will expire unused, and arrange a transfer. Sending and receiving officers must then agree on what actually left and arrived.

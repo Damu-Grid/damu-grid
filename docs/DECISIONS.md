@@ -60,6 +60,8 @@ Record decisions as they are taken. Date in EAT. A later official organiser mess
 
 ## Proposed, not yet decided
 
+- **ADR-009 proposal — expanded risk-ranking path:** retain the accepted Tier 1 pooled-demand queue and nearest fallback as the demo base. Review the pre-window winning hypothesis through `docs/EXPANDED_SOLUTION_INTEGRATION.md`. Promote a newly written waste-risk classifier or broader balancing policy only after the frozen in-window comparison and safety gates in that brief pass. The team must record acceptance, rejection or deferral at check-in; pre-window AUC and savings figures are not submission evidence.
+
 - Default numeric sender reserve and recipient target (ask at Q&A if still open; otherwise pick a documented, conservative rule and say it is our choice).
 - Public hosting vs local Docker-only for the judged demo.
 - MapLibre vs Leaflet as the shipped map.
