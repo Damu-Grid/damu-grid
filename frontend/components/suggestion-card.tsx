@@ -118,7 +118,10 @@ export function SuggestionCard({
 
   const from = shortName(s.from_facility_id, s.from_facility_name);
   const to = shortName(s.to_facility_id, s.to_facility_name);
-  const expiring = daysAfterAsOf(s.expiry_date, s.as_of) <= 10;
+  const days = daysAfterAsOf(s.expiry_date, s.as_of);
+  // Same rule as ExpiryChip: an expiry that does not parse is a warning, never a top-up.
+  const expiryUnknown = !Number.isFinite(days);
+  const expiring = expiryUnknown || days <= 10;
 
   return (
     <Card className={cn("gap-0 py-0", placeholder && "border-dashed opacity-80")}>
@@ -150,7 +153,13 @@ export function SuggestionCard({
       </div>
       <div
         className={cn("mx-5 mt-3 h-1.5 rounded-full", expiring ? "bg-gold" : "bg-navy")}
-        title={expiring ? "Expiring soon: moving it avoids waste" : "Top-up"}
+        title={
+          expiryUnknown
+            ? "Expiry unknown: check before moving"
+            : expiring
+              ? "Expiring soon: moving it avoids waste"
+              : "Top-up"
+        }
         aria-hidden
       />
 
@@ -170,8 +179,8 @@ export function SuggestionCard({
 
         <p className="text-sm text-ink-2">
           {fmt(s.typical_travel_hours, " h")} by road · recipient gap {units(s.recipient_gap_units)} ·
-          sender keeps {units(s.sender_reserve_units)}
-          {s.sender_stock_after !== null && `, ${s.sender_stock_after} left after`}
+          sender reserve {units(s.sender_reserve_units)}
+          {s.sender_stock_after !== null && ` · stock left after ${units(s.sender_stock_after)}`}
         </p>
 
         <p className="text-sm text-ink-2">
