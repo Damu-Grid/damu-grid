@@ -22,8 +22,16 @@ import pandas as pd
 
 from forecasting.baseline import baseline_forecast
 from forecasting.candidate import candidate_forecast
-from forecasting.config import CONFIG, PROCESSED_DIR, RAW_DIR, ForecastConfig, evaluation_origins
+from forecasting.config import (
+    CONFIG,
+    PROCESSED_DIR,
+    RAW_DIR,
+    ForecastConfig,
+    calibration_origins,
+    evaluation_origins,
+)
 from forecasting.demand import DemandSlice, load_demand_slice, period_totals
+from forecasting.uncertainty import calibrate, coverage, upper_bound
 
 MODELS = ("baseline", "candidate")
 BOOTSTRAP_SEED = 2026
@@ -138,9 +146,31 @@ def summarise(table: pd.DataFrame) -> dict:
 
 def evaluate(raw_dir: Path = RAW_DIR, config: ForecastConfig = CONFIG) -> EvaluationResult:
     sliced = load_demand_slice(raw_dir, config)
+    calibration = forecast_table(sliced, calibration_origins(config), config)
     origins = evaluation_origins(config)
     table = forecast_table(sliced, origins, config)
-    return EvaluationResult(table=table, metrics=summarise(table), exclusions=sliced.exclusions)
+    multiplier = calibrate(calibration, config.upper_bound_level, config.upper_bound_scale_offset)
+    table["candidate_upper"] = upper_bound(
+        table["candidate"], multiplier, config.upper_bound_scale_offset
+    )
+    metrics = summarise(table)
+    metrics["upper_bound"] = {
+        "method": "scaled one-sided residual bound",
+        "nominal_level": config.upper_bound_level,
+        "multiplier": multiplier,
+        "calibration_origins": len(calibration_origins(config)),
+        "calibration_rows": len(calibration),
+        "overall": coverage(table["actual"], table["candidate_upper"]),
+        "o_negative": coverage(
+            table.loc[table["blood_group"] == "O-", "actual"],
+            table.loc[table["blood_group"] == "O-", "candidate_upper"],
+        ),
+        "note": (
+            "Synthetic retrospective coverage; not a clinical probability "
+            "or per-site guarantee"
+        ),
+    }
+    return EvaluationResult(table=table, metrics=metrics, exclusions=sliced.exclusions)
 
 
 def _fmt(value: float, digits: int = 3) -> str:
@@ -152,6 +182,7 @@ def summary_markdown(result: EvaluationResult, config: ForecastConfig = CONFIG) 
     base, cand = m["overall"]["baseline"], m["overall"]["candidate"]
     ob, oc = m["o_negative"]["baseline"], m["o_negative"]["candidate"]
     boot = m["paired_bootstrap"]
+    bound = m["upper_bound"]
     verdict = (
         "The candidate has the lower RMSE."
         if m["candidate_wins"]
@@ -187,6 +218,13 @@ def summary_markdown(result: EvaluationResult, config: ForecastConfig = CONFIG) 
             "",
             f"O-negative only (N={ob['n']:,}): baseline RMSE {_fmt(ob['rmse'])}, candidate RMSE "
             f"{_fmt(oc['rmse'])}.",
+            "",
+            f"One-sided {bound['nominal_level']:.0%} upper bound calibrated on "
+            f"{bound['calibration_origins']} May–June origins "
+            f"({bound['calibration_rows']:,} cells): measured July–October coverage "
+            f"{bound['overall']['rate']:.1%} overall and "
+            f"{bound['o_negative']['rate']:.1%} for O-negative. This is a synthetic "
+            "retrospective model bound, not a clinical probability or per-site guarantee.",
             "",
             f"Slice: {ex['request_rows_used']:,} of {ex['request_rows_total']:,} "
             "request rows used. "
