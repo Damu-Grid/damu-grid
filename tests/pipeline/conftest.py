@@ -100,6 +100,7 @@ def _temperature_logs() -> str:
 
 @pytest.fixture
 def mini_raw(tmp_path):
+    """Test helper: mini raw."""
     files = {
         "facilities": FACILITIES, "routes": ROUTES, "transfers": TRANSFERS, "daily_stock": DAILY_STOCK,
         "power_outages": OUTAGES, "requests": REQUESTS, "temperature_logs": _temperature_logs(),
@@ -116,6 +117,7 @@ def mini_raw(tmp_path):
 
 @pytest.fixture
 def mini_tables(mini_raw):
+    """Test helper: mini tables."""
     tables, _ = load_all(mini_raw, ["facilities", "routes", "donations", "units", "transfers",
                                     "daily_stock", "power_outages", "requests", "temperature_logs"])
     return tables

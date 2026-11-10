@@ -6,8 +6,11 @@
   decision and the physical steps (reserve, dispatch, receive), never a model score.
 - The audit trail is append-only at database level (UPDATE and DELETE are refused).
 
-Timestamps are stored as ISO 8601 text. Official timestamps are EAT without an offset (as in the
-CSVs); new `dg_` records must carry an explicit offset, e.g. 2026-11-10T21:00:00+03:00.
+Timestamps are stored as text. Official timestamps, and the `dg_` columns copied or derived from
+them (`dg_snapshot_units.on_shelf_since`, `dg_cold_chain_flags.start_at` and `end_at`), are EAT
+without an offset (`YYYY-MM-DD HH:MM:SS`, as in the CSVs): the API adds `+03:00` when it serialises
+them. Records created by the application (`dg_moves`, `dg_audit_events`, `dg_snapshot_meta`)
+carry an explicit offset, e.g. 2026-11-10T21:00:00+03:00.
 """
 
 from __future__ import annotations
@@ -145,6 +148,7 @@ _INDEXES = [
 
 
 def official_ddl(name: str) -> str:
+    """CREATE TABLE statement of an official table, with its official column names."""
     cols = []
     for col, kind in TABLES[name].items():
         line = f"    {col} {_SQL_TYPE[kind]}"
@@ -181,6 +185,7 @@ _AUDIT_FIELDS = ("event_id", "at", "actor_id", "role", "action", "move_id", "uni
 
 
 def _audit_hash(row: dict) -> str:
+    """SHA-256 of the canonical JSON of an audit event."""
     canonical = json.dumps({k: row[k] for k in _AUDIT_FIELDS}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -227,6 +232,7 @@ def verify_audit_chain(conn: sqlite3.Connection) -> tuple[bool, int | None]:
 
 
 def _to_sql_frame(df: pd.DataFrame, name: str) -> pd.DataFrame:
+    """Convert typed pandas columns to SQLite-friendly text, integers and None."""
     out = df.copy()
     for col, kind in TABLES[name].items():
         s = out[col]
@@ -257,6 +263,7 @@ def write_official(conn: sqlite3.Connection, tables: dict[str, pd.DataFrame]) ->
 
 
 def _replace_official(conn: sqlite3.Connection, tables: dict[str, pd.DataFrame]) -> None:
+    """Delete and reload the official tables from the validated frames."""
     for name, df in tables.items():
         frame = _to_sql_frame(df, name)
         conn.execute(f"DELETE FROM {name}")
@@ -269,6 +276,7 @@ def _replace_official(conn: sqlite3.Connection, tables: dict[str, pd.DataFrame])
 
 
 def connect(path: Path = DB_PATH) -> sqlite3.Connection:
+    """Open the SQLite database (creating its folder) with foreign keys enforced."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)

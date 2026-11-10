@@ -20,11 +20,13 @@ LOGS_HEADER = "facility_id,recorded_at,temp_c\n"
 
 
 def _write(tmp: Path, name: str, text: str) -> Path:
+    """Test helper: write."""
     (tmp / f"{name}.csv").write_text(text)
     return tmp
 
 
 def test_reads_typed_columns(tmp_path):
+    """Reads typed columns."""
     _write(tmp_path, "facilities", FACILITIES)
     df = read_table("facilities", tmp_path)
     assert df["has_blood_fridge_backup_power"].tolist() == [True, False]
@@ -33,12 +35,14 @@ def test_reads_typed_columns(tmp_path):
 
 
 def test_missing_column_fails_loudly(tmp_path):
+    """Missing column fails loudly."""
     _write(tmp_path, "temperature_logs", "facility_id,recorded_at\nHSP-1,2026-01-01 00:00:00\n")
     with pytest.raises(SchemaError, match="missing columns"):
         read_table("temperature_logs", tmp_path)
 
 
 def test_unexpected_column_fails_loudly(tmp_path):
+    """Unexpected column fails loudly."""
     text = "facility_id,recorded_at,temp_c,extra\nHSP-1,2026-01-01 00:00:00,4.0,1\n"
     _write(tmp_path, "temperature_logs", text)
     with pytest.raises(SchemaError, match="unexpected columns"):
@@ -46,12 +50,14 @@ def test_unexpected_column_fails_loudly(tmp_path):
 
 
 def test_mistyped_value_fails_loudly(tmp_path):
+    """Mistyped value fails loudly."""
     _write(tmp_path, "temperature_logs", LOGS_HEADER + "HSP-1,2026-01-01 00:00:00,warm\n")
     with pytest.raises(SchemaError, match="not float"):
         read_table("temperature_logs", tmp_path)
 
 
 def test_unknown_facility_id_fails(tmp_path):
+    """Unknown facility id fails."""
     _write(tmp_path, "facilities", FACILITIES)
     _write(tmp_path, "temperature_logs", LOGS_HEADER + "HSP-404,2026-01-01 00:00:00,4.0\n")
     with pytest.raises(SchemaError, match="not in facilities.csv"):
@@ -59,6 +65,7 @@ def test_unknown_facility_id_fails(tmp_path):
 
 
 def test_raw_dir_is_not_modified(tmp_path):
+    """Raw dir is not modified."""
     raw = tmp_path / "raw"
     raw.mkdir()
     _write(raw, "facilities", FACILITIES)
@@ -69,6 +76,7 @@ def test_raw_dir_is_not_modified(tmp_path):
 
 
 def test_every_problem_is_reported_in_one_run(tmp_path):
+    """Every problem is reported in one run."""
     _write(tmp_path, "facilities", FACILITIES)
     _write(tmp_path, "temperature_logs", LOGS_HEADER + "HSP-404,2026-01-01 00:00:00,4.0\n"
                                                       "HSP-1,yesterday,warm\n")
@@ -81,6 +89,7 @@ def test_every_problem_is_reported_in_one_run(tmp_path):
 
 
 def test_schema_matches_the_official_data_dictionary():
+    """Schema matches the official data dictionary."""
     if not (RAW_DIR / "DATA_DICTIONARY.md").exists():
         pytest.skip("data dictionary not present")
     documented = dictionary_columns()
@@ -91,6 +100,7 @@ def test_schema_matches_the_official_data_dictionary():
 
 @pytest.mark.dataset
 def test_official_row_counts_match_docs():
+    """Official row counts match docs."""
     if not (RAW_DIR / "units.csv").exists():
         pytest.skip("official dataset not present")
     tables, report = load_all()

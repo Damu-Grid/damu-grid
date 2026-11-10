@@ -95,8 +95,8 @@ Built by `python -m pipeline build` into `dg_cold_chain_flags`. The backend can 
   "scope": "unit",
   "facility_id": "HSP-001",
   "unit_id": "U2610-...-RBC",
-  "evidence_at": "2026-10-25 02:00:00",
-  "end_at": "2026-10-25 05:00:00",
+  "evidence_at": "2026-10-25T02:00:00+03:00",
+  "end_at": "2026-10-25T05:00:00+03:00",
   "value": 7.5,
   "source_table": "temperature_logs",
   "source_ref": null,
@@ -105,7 +105,7 @@ Built by `python -m pipeline build` into `dg_cold_chain_flags`. The backend can 
 }
 ```
 
-`flag_type` is one of `fridge_excursion`, `outage_no_backup`, `logger_gap`, `coolbox_excursion`, `receipt_unconfirmed`, `official_exposure` (and `sensor_glitch`, which the query leaves out because it is never a clinical event). Timestamps are EAT, as in the official data. `value` is the peak temperature, the outage hours or the missing hours. A flag can only add caution: no endpoint may use the absence of a flag to declare a unit safe or to clear a quarantine.
+`flag_type` is one of `fridge_excursion`, `outage_no_backup`, `logger_gap`, `coolbox_excursion`, `receipt_unconfirmed`, `official_exposure` (and `sensor_glitch`, which the query leaves out because it is never a clinical event). Timestamps follow the API-wide rule: ISO 8601 with an explicit `+03:00` offset. The database keeps the same instants as EAT text without an offset (`YYYY-MM-DD HH:MM:SS`, the form of the official CSVs), so the endpoint must append `+03:00` when it serialises `evidence_at` and `end_at`. `value` is the peak temperature, the outage hours or the missing hours. A flag can only add caution: no endpoint may use the absence of a flag to declare a unit safe or to clear a quarantine.
 
 ## Idempotency
 

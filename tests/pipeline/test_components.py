@@ -13,6 +13,7 @@ AS_OF = pd.Timestamp("2026-10-31 23:59:59")
 
 
 def test_config_carries_a_policy_per_component():
+    """Config carries a policy per component."""
     cfg = load_config()
     assert {c: p.shelf_life_days for c, p in cfg.components.items()} == {
         "RBC": 42, "WB": 35, "PLT": 5, "FFP": 365, "CRYO": 365}
@@ -21,12 +22,14 @@ def test_config_carries_a_policy_per_component():
 
 
 def test_configured_shelf_lives_match_the_data(mini_tables):
+    """Configured shelf lives match the data."""
     check = shelf_life_check(mini_tables["units"], CFG).set_index("component")
     assert check["matches"].all()
     assert check.loc["PLT", "observed_mode_days"] == 5
 
 
 def test_shelf_life_mismatch_is_detected(mini_tables):
+    """Shelf life mismatch is detected."""
     wrong = load_config(None).components | {}
     wrong["RBC"] = type(wrong["RBC"])(35, True)
     cfg = PipelineConfig(components=wrong)
@@ -35,6 +38,7 @@ def test_shelf_life_mismatch_is_detected(mini_tables):
 
 
 def test_rbc_default_scope_is_unchanged_by_platelet_settings(mini_tables):
+    """Rbc default scope is unchanged by platelet settings."""
     snap = build_snapshot(mini_tables, CFG)
     default = unit_eligibility(snap.units, CFG, snap.as_of)
     with_plt = unit_eligibility(snap.units, CFG.with_components_enabled("PLT"), snap.as_of)
@@ -45,6 +49,7 @@ def test_rbc_default_scope_is_unchanged_by_platelet_settings(mini_tables):
 
 
 def test_platelets_carry_a_missing_evidence_warning(mini_tables):
+    """Platelets carry a missing evidence warning."""
     snap = build_snapshot(mini_tables, CFG)
     res = unit_eligibility(snap.units, CFG.with_components_enabled("PLT"), snap.as_of).units
     res = res.set_index("unit_id")
@@ -53,6 +58,7 @@ def test_platelets_carry_a_missing_evidence_warning(mini_tables):
 
 
 def test_component_catalog_for_the_api():
+    """Component catalog for the api."""
     cat = {c["component"]: c for c in component_catalog(CFG)}
     assert cat["RBC"]["enabled_in_queue"] and cat["RBC"]["storage_range_c"] == [2.0, 6.0]
     assert not cat["PLT"]["enabled_in_queue"] and not cat["PLT"]["storage_evidence_in_dataset"]
@@ -60,6 +66,7 @@ def test_component_catalog_for_the_api():
 
 
 def test_platelets_have_a_tighter_routing_policy(mini_tables):
+    """Platelets have a tighter routing policy."""
     cfg = CFG.with_components_enabled("PLT")
     snap = build_snapshot(mini_tables, cfg)
     unit = snap.units.set_index("unit_id").loc["U10"].to_dict() | {"unit_id": "U10"}

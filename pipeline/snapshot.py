@@ -30,6 +30,7 @@ class LeakageError(ValueError):
 
 @dataclass
 class Snapshot:
+    """The closing snapshot: units on the shelf, exclusions and daily_stock check."""
     as_of: pd.Timestamp                      # naive EAT, as in the official data
     as_of_iso: str                           # with +03:00 offset
     units: pd.DataFrame                      # one row per unit on the shelf
@@ -39,6 +40,7 @@ class Snapshot:
     counts: dict[str, int] = field(default_factory=dict)
 
     def summary_lines(self) -> list[str]:
+        """Human-readable counts for the build command."""
         lines = [f"as-of {self.as_of_iso}"]
         lines += [f"  {k}: {v:,}" for k, v in self.counts.items()]
         lines.append(f"  daily_stock total on {self.as_of.date()}: {self.daily_stock_total:,}")
@@ -49,6 +51,7 @@ class Snapshot:
 
 
 def _as_of(config: PipelineConfig) -> tuple[pd.Timestamp, str]:
+    """Return the as-of time as a naive EAT timestamp and as ISO 8601 with offset."""
     aware = datetime.fromisoformat(config.as_of)
     naive = pd.Timestamp(aware.replace(tzinfo=None))
     return naive, aware.isoformat()
@@ -68,6 +71,7 @@ def check_no_leakage(as_of: pd.Timestamp, tables: dict[str, pd.DataFrame]) -> No
 
 
 def build_snapshot(tables: dict[str, pd.DataFrame], config: PipelineConfig) -> Snapshot:
+    """Build the closing snapshot at the as-of time without using later information."""
     as_of, as_of_iso = _as_of(config)
     check_no_leakage(as_of, tables)
     units = tables["units"]
@@ -125,6 +129,7 @@ def build_snapshot(tables: dict[str, pd.DataFrame], config: PipelineConfig) -> S
 
 
 def write_snapshot(conn, snap: Snapshot, config: PipelineConfig) -> None:
+    """Store the snapshot in dg_snapshot_meta and dg_snapshot_units."""
     conn.execute("DELETE FROM dg_snapshot_units WHERE as_of = ?", (snap.as_of_iso,))
     conn.execute("DELETE FROM dg_snapshot_meta WHERE as_of = ?", (snap.as_of_iso,))
     conn.execute(
@@ -135,6 +140,7 @@ def write_snapshot(conn, snap: Snapshot, config: PipelineConfig) -> None:
     )
 
     def _d(v, fmt):
+        """Format a timestamp with `fmt`, or None if missing."""
         return None if pd.isna(v) else pd.Timestamp(v).strftime(fmt)
 
     rows = [

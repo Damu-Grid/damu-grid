@@ -18,6 +18,7 @@ CFG = PipelineConfig()
 
 
 def test_requests_are_keyed_by_facility_id(mini_tables):
+    """Requests are keyed by facility id."""
     r = requests_with_facility_check(mini_tables["requests"], mini_tables["facilities"])
     r = r.set_index("request_id")
     assert r.loc["R2", "facility_id"] == "HSP-1"            # typed "HOSPITAL  ONE"
@@ -28,6 +29,7 @@ def test_requests_are_keyed_by_facility_id(mini_tables):
 
 
 def test_ambiguous_and_wrong_site_names_are_flagged():
+    """Ambiguous and wrong site names are flagged."""
     facilities = pd.DataFrame({
         "facility_id": ["HSP-A", "HSP-B", "HSP-C"],
         "name": ["Kisumu County Referral Hospital", "Kisumu County Referral Hospital Annex",
@@ -47,6 +49,7 @@ def test_ambiguous_and_wrong_site_names_are_flagged():
 
 
 def test_unknown_patient_group_stays_unknown(mini_tables):
+    """Unknown patient group stays unknown."""
     r = requests_with_facility_check(mini_tables["requests"], mini_tables["facilities"])
     r = r.set_index("request_id")
     assert r.loc["R2", "patient_blood_group"] == "unknown"
@@ -54,6 +57,7 @@ def test_unknown_patient_group_stays_unknown(mini_tables):
 
 
 def test_missing_receipt_is_not_fabricated(mini_tables):
+    """Missing receipt is not fabricated."""
     t = transfers_with_receipt_evidence(mini_tables["transfers"]).set_index("transfer_id")
     assert t.loc["T5", "receipt_status"] == "unconfirmed"
     assert pd.isna(t.loc["T5", "received_at"]) and pd.isna(t.loc["T5", "transit_hours"])
@@ -61,6 +65,7 @@ def test_missing_receipt_is_not_fabricated(mini_tables):
 
 
 def test_glitch_values_are_glitches_not_excursions(mini_tables):
+    """Glitch values are glitches not excursions."""
     logs = classify_temperatures(mini_tables["temperature_logs"], CFG)
     at = logs.set_index(["facility_id", "recorded_at"])["reading_class"]
     assert at[("RBTC-A", pd.Timestamp("2026-10-22 03:00"))] == "glitch"      # 99.9
@@ -69,6 +74,7 @@ def test_glitch_values_are_glitches_not_excursions(mini_tables):
 
 
 def test_logger_gaps_are_reported(mini_tables):
+    """Logger gaps are reported."""
     gaps = logger_gaps(mini_tables["temperature_logs"], CFG)
     assert len(gaps) == 1
     g = gaps.iloc[0]
@@ -76,6 +82,7 @@ def test_logger_gaps_are_reported(mini_tables):
 
 
 def test_possible_duplicate_donors_are_listed_not_merged():
+    """Possible duplicate donors are listed not merged."""
     donors = pd.DataFrame({
         "donor_id": ["A", "B", "C"], "birth_date": pd.to_datetime(["2000-01-01"] * 3),
         "sex": ["F", "F", "M"], "home_county": ["X", "X", "X"], "phone_last4": ["1234", "1234", "1234"],
@@ -85,6 +92,7 @@ def test_possible_duplicate_donors_are_listed_not_merged():
 
 
 def test_quality_report_counts(mini_tables):
+    """Quality report counts."""
     rep = quality_report(mini_tables, CFG)
     assert rep["requests_name_not_exact"] == 2
     assert rep["emergency_requests_group_unknown"] == 1

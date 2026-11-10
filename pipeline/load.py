@@ -24,20 +24,24 @@ class SchemaError(ValueError):
     """The CSVs do not match the official data dictionary. `problems` lists every issue found."""
 
     def __init__(self, problems: list[str]):
+        """Keep the list of problems and join them into the message."""
         self.problems = list(problems)
         super().__init__("; ".join(self.problems))
 
 
 @dataclass
 class ValidationReport:
+    """Row counts of the loaded tables and their differences from docs/DATA.md."""
     row_counts: dict[str, int] = field(default_factory=dict)
     row_count_discrepancies: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
+        """True when every row count matches docs/DATA.md."""
         return not self.row_count_discrepancies
 
     def lines(self) -> list[str]:
+        """One line per table: its row count and whether it matches docs/DATA.md."""
         out = []
         for name, n in self.row_counts.items():
             exp = EXPECTED_ROWS.get(name)
@@ -47,6 +51,7 @@ class ValidationReport:
 
 
 def _parse(series: pd.Series, kind: str, where: str, problems: list[str]) -> pd.Series:
+    """Parse a raw CSV column to its declared kind, recording unparseable values."""
     filled = series.notna()
     if kind == "str":
         return series.astype("string")
@@ -76,6 +81,7 @@ def _parse(series: pd.Series, kind: str, where: str, problems: list[str]) -> pd.
 
 
 def _read(name: str, raw_dir: Path, problems: list[str]) -> pd.DataFrame | None:
+    """Read and validate one table; problems are collected, not raised."""
     spec = TABLES[name]
     path = Path(raw_dir) / f"{name}.csv"
     if not path.exists():
@@ -133,6 +139,7 @@ def facility_key_problems(tables: dict[str, pd.DataFrame]) -> list[str]:
 
 
 def check_facility_keys(tables: dict[str, pd.DataFrame]) -> None:
+    """Raise SchemaError if any facility reference is unknown."""
     problems = facility_key_problems(tables)
     if problems:
         raise SchemaError(problems)

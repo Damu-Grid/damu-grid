@@ -52,14 +52,17 @@ MOVE_REASONS = (
 
 @dataclass
 class EligibilityResult:
+    """Unit-level eligibility: snapshot units with `eligible`, `reasons`, `reason`."""
     units: pd.DataFrame  # snapshot units + `eligible`, `reasons` (tuple), `reason` (first)
 
     @property
     def eligible(self) -> pd.DataFrame:
+        """Units that may be suggested."""
         return self.units[self.units["eligible"]]
 
     @property
     def excluded(self) -> pd.DataFrame:
+        """Units that may not be suggested, each with its reasons."""
         return self.units[~self.units["eligible"]]
 
     def exclusion_counts(self) -> dict[str, int]:
@@ -134,6 +137,7 @@ class NetworkIndex:
 
     @classmethod
     def build(cls, routes: pd.DataFrame, facilities: pd.DataFrame) -> NetworkIndex:
+        """Index routes and facility types once, for fast lookups."""
         r = {(a, b): (None if pd.isna(h) else float(h), q)
              for a, b, h, q in zip(routes["from_facility_id"], routes["to_facility_id"],
                                    routes["typical_travel_hours"], routes["road_quality"], strict=True)}
