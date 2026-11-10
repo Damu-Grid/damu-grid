@@ -24,7 +24,7 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 ## What we built
 
 - What works now: planning documents, official dataset in `data/raw/`, and the intended architecture in `docs/`. Application features will be checked off here as they land in the window.
-  - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (598 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags. 71 automated tests.
+  - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (598 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags checked against the official exposure flag (87 of 87 exposed red cells found). 89 automated tests.
 - What is mocked or not finished: the working prototype, baseline numbers, UI, demo video and slides are to be built in the window. Tier 2 items are listed in `docs/IMPLEMENTATION_PLAN.md`.
 
 Demo video (3 minutes or less): [link to be added]
@@ -39,7 +39,7 @@ git clone https://github.com/Damu-Grid/damu-grid.git
 cd damu-grid
 uv sync
 uv run python -m pipeline build     # ~15 s: validates the CSVs, writes data/processed/damu_grid.sqlite
-uv run pytest                       # 71 tests (add -m "not dataset" for the 10-second subset)
+uv run pytest                       # 89 tests (add -m "not dataset" for the fast subset)
 ```
 
 `python -m pipeline build` prints the row counts, the closing snapshot, the cold-chain flags and how many red-cell units are eligible, with the reason for every exclusion. Nothing under `data/raw/` is written. Details: `pipeline/README.md`.
