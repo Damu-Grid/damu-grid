@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from pipeline.config import PipelineConfig
@@ -101,11 +102,26 @@ def unit_eligibility(
         "cold_chain_evidence": df["unit_id"].isin(blocked_by_flag),
         "reserved_or_in_transit": df["unit_id"].isin(reserved),
     }
-    mask = pd.DataFrame({k: v.fillna(True).astype(bool) for k, v in checks.items()})
-    df["reasons"] = [tuple(r for r in UNIT_REASONS if row[r]) for _, row in mask.iterrows()]
-    df["eligible"] = df["reasons"].map(len).eq(0)
-    df["reason"] = df["reasons"].map(lambda r: r[0] if r else None)
+    flags = np.column_stack([checks[r].fillna(True).astype(bool).to_numpy() for r in UNIT_REASONS])
+    names = np.array(UNIT_REASONS, dtype=object)
+    df["eligible"] = ~flags.any(axis=1)
+    df["reasons"] = [tuple(names[row]) for row in flags]
+    df["reason"] = np.where(df["eligible"], None, names[flags.argmax(axis=1)])
     return EligibilityResult(df)
+
+
+@dataclass(frozen=True)
+class NetworkIndex:
+    """Route and facility lookups built once, so checking thousands of moves stays fast."""
+    routes: dict[tuple[str, str], tuple[float | None, str | None]]
+    facility_types: dict[str, str]
+
+    @classmethod
+    def build(cls, routes: pd.DataFrame, facilities: pd.DataFrame) -> NetworkIndex:
+        r = {(a, b): (None if pd.isna(h) else float(h), q)
+             for a, b, h, q in zip(routes["from_facility_id"], routes["to_facility_id"],
+                                   routes["typical_travel_hours"], routes["road_quality"], strict=True)}
+        return cls(r, dict(zip(facilities["facility_id"], facilities["facility_type"], strict=True)))
 
 
 def remaining_hours_on_arrival(expiry_date: pd.Timestamp, as_of: pd.Timestamp, travel_hours: float,
@@ -128,27 +144,28 @@ def check_move(
     recipient_gap: float | None,
     sender_reserve: int | None = None,
     units_moving: int = 1,
+    index: NetworkIndex | None = None,
 ) -> dict:
     """Check one unit (already unit-eligible) for one destination. Returns the facts the suggestion
-    card needs plus `reasons` (empty = the move may be shown to the coordinator)."""
+    card needs plus `reasons` (empty = the move may be shown to the coordinator).
+    Pass a prebuilt `index` when checking many moves."""
     reasons: list[str] = []
     src = unit["facility_id"]
     reserve = config.default_sender_reserve_units if sender_reserve is None else sender_reserve
-    ftypes = facilities.set_index("facility_id")["facility_type"]
-    route = routes[(routes["from_facility_id"] == src) & (routes["to_facility_id"] == to_facility_id)]
+    index = index or NetworkIndex.build(routes, facilities)
+    route = index.routes.get((src, to_facility_id))
 
     if src == to_facility_id:
         reasons.append("same_site")
-    if ftypes.get(to_facility_id) not in config.recipient_facility_types:
+    if index.facility_types.get(to_facility_id) not in config.recipient_facility_types:
         reasons.append("recipient_not_hospital")
     travel = None
-    if route.empty:
+    if route is None:
         reasons.append("no_route")
     else:
-        travel = route["typical_travel_hours"].iloc[0]
-        if pd.isna(travel):
+        travel = route[0]
+        if travel is None:
             reasons.append("route_time_missing")
-            travel = None
     remaining = None
     policy = config.policy(unit["component"])
     if travel is not None:
@@ -167,7 +184,7 @@ def check_move(
         "component": unit["component"], "blood_group": unit["blood_group"],
         "expiry_date": unit["expiry_date"],
         "typical_travel_hours": None if travel is None else float(travel),
-        "road_quality": None if route.empty else route["road_quality"].iloc[0],
+        "road_quality": None if route is None else route[1],
         "remaining_hours_on_arrival": remaining,
         "sender_reserve_units": reserve, "sender_stock_after": stock_after,
         "recipient_gap_units": recipient_gap,
@@ -191,6 +208,7 @@ def candidate_moves(
     For each destination, units leave the sender in expiry order and only units that pass every
     check count as leaving, so the sender always keeps its reserve."""
     sender_reserves = sender_reserves or {}
+    index = NetworkIndex.build(routes, facilities)
     ok = result.eligible.sort_values(["facility_id", "component", "blood_group", "expiry_date"])
     rows = []
     for (src, comp, grp), group in ok.groupby(["facility_id", "component", "blood_group"]):
@@ -203,11 +221,19 @@ def candidate_moves(
                     unit, dest, as_of=as_of, config=config, routes=routes, facilities=facilities,
                     sender_available=n, units_moving=leaving + 1,
                     recipient_gap=recipient_gaps[(dest, comp, grp)],
-                    sender_reserve=sender_reserves.get((src, comp, grp)),
+                    sender_reserve=sender_reserves.get((src, comp, grp)), index=index,
                 )
                 leaving += move["ok"]
                 rows.append(move)
     return pd.DataFrame(rows)
+
+
+def sender_reserves_from_demand(daily_demand: Mapping[tuple[str, str, str], float], cover_days: float,
+                                minimum: int) -> dict[tuple[str, str, str], int]:
+    """Turn a forecast of daily requested units per (facility, component, group) into a reserve:
+    enough units to cover `cover_days` of expected demand, never below `minimum`. Replaces the flat
+    default once the demand estimator (forecasting/) is available."""
+    return {k: max(minimum, int(np.ceil(rate * cover_days))) for k, rate in daily_demand.items()}
 
 
 def shelf_life_check(units: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:

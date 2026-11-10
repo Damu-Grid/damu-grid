@@ -9,7 +9,13 @@ import pandas as pd
 import pytest
 
 from pipeline.config import PipelineConfig, load_config
-from pipeline.eligibility import active_reserved_units, candidate_moves, check_move, unit_eligibility
+from pipeline.eligibility import (
+    active_reserved_units,
+    candidate_moves,
+    check_move,
+    sender_reserves_from_demand,
+    unit_eligibility,
+)
 from pipeline.snapshot import build_snapshot
 from pipeline.store import create_schema
 
@@ -133,6 +139,16 @@ def test_candidate_moves_keep_the_sender_reserve(result, mini_tables):
     rbtc = moves[(moves["from_facility_id"] == "RBTC-A") & moves["ok"]]
     # RBTC-A holds 4 eligible O+ (U9 too short): at most 4 - 2 = 2 may leave, soonest expiry first.
     assert list(rbtc["unit_id"]) == ["U2", "U11"]
+
+
+def test_reserves_can_come_from_the_demand_forecast(result, mini_tables):
+    reserves = sender_reserves_from_demand({("RBTC-A", "RBC", "O+"): 1.2}, cover_days=2.5, minimum=2)
+    assert reserves == {("RBTC-A", "RBC", "O+"): 3}
+    moves = candidate_moves(
+        result, as_of=pd.Timestamp("2026-10-31 23:59:59"), config=CFG, routes=mini_tables["routes"],
+        facilities=mini_tables["facilities"], recipient_gaps={("HSP-2", "RBC", "O+"): 3},
+        sender_reserves=reserves)
+    assert list(moves.loc[(moves["from_facility_id"] == "RBTC-A") & moves["ok"], "unit_id"]) == ["U2"]
 
 
 def test_rules_come_from_the_shared_config(snap, tmp_path):
