@@ -6,7 +6,6 @@ import { z } from "zod";
 import { ApiError, apiFetch } from "./client";
 import {
   ActionResultSchema,
-  MoveListSchema,
   MoveSchema,
   SuggestionListSchema,
   SuggestionSchema,
@@ -65,6 +64,11 @@ const ApiMoveSchema = z.object({
 });
 type ApiMove = z.infer<typeof ApiMoveSchema>;
 
+// A future GET /moves?status= list, in the same shape as GET /moves/{id}.
+const ApiMoveListSchema = z
+  .union([z.array(ApiMoveSchema), z.object({ items: z.array(ApiMoveSchema) })])
+  .transform((v) => (Array.isArray(v) ? v : v.items));
+
 const ApiAuditSchema = z.array(
   z.object({
     event_id: z.string(),
@@ -83,12 +87,15 @@ const ApiActionResultSchema = z
   .passthrough()
   .transform((r) => ({ ...r, state: r.status }));
 
-/** One audit entry per move event; the API writes one row per unit. */
+/**
+ * One audit entry per move event. The API writes one row per unit, each with
+ * its own timestamp and event_id, so rows are grouped by what they share.
+ */
 function apiAuditEvents(rows: ApiAuditRow[]): AuditEvent[] {
   const seen = new Set<string>();
   return rows
     .filter((r) => {
-      const key = `${r.event_type}|${r.occurred_at}`;
+      const key = [r.move_id, r.event_type, r.actor_id, JSON.stringify(r.payload)].join("|");
       return seen.has(key) ? false : (seen.add(key), true);
     })
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
@@ -149,10 +156,12 @@ const specBackend: Backend = {
   async listMoves(states) {
     // Use a list endpoint if the API grows one; until then, rebuild from /audit.
     try {
-      return await apiFetch(
+      const listed = await apiFetch(
         `/moves?${states.map((s) => `status=${encodeURIComponent(s)}`).join("&")}`,
-        MoveListSchema,
+        ApiMoveListSchema,
       );
+      const audit = listed.length ? await fetchApiAudit() : [];
+      return Promise.all(listed.map((m) => apiToMove(m, audit)));
     } catch (error) {
       if (!(error instanceof ApiError) || ![404, 405].includes(error.status)) throw error;
     }
