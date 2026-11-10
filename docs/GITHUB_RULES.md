@@ -44,3 +44,15 @@ Suggested labels (create when the repo exists): `tier-1`, `tier-2`, `backend`, `
 ## Releases and visibility
 
 The repository must be **public by the submission deadline**. Make it public with enough time to fix link permissions on the video and slides. The official brief required the GitHub link on the check-in form by Tue 14:00 EAT; if that already slipped, submit as soon as the empty or skeleton repo exists.
+
+## CI checks
+
+Every pull request and every push to `main` runs `.github/workflows/ci.yml`. Each job skips itself until its part of the repo has code, so it never blocks early work.
+
+- **Python lint and tests:** `ruff check` on all Python outside `data/raw/`, and `pytest` once `pyproject.toml` and tests exist. Run locally with `uv run ruff check .` and `uv run pytest`.
+- **Frontend:** once `frontend/package.json` exists, installs with pnpm and runs `lint`, `typecheck` and `test` if those scripts exist, then `build`. Run locally with `cd frontend && pnpm lint && pnpm build`.
+- **Secrets and dataset guard:** fails if a `.env` file (other than `.env.example`) is committed, if gitleaks finds a secret, if any CSV in `data/raw/` differs from `data/raw/SHA256SUMS`, or if a file over 5 MB is added outside `data/raw/`.
+
+The official starter CSVs are read-only. Derived data goes to `data/processed/` (git-ignored). If the organisers ship a new dataset version, update the CSVs and regenerate the checksums in the same PR with `cd data/raw && sha256sum *.csv > SHA256SUMS`.
+
+Keep CI green: merge only with passing checks. If a check is wrong or blocking a demo-critical fix, fix the check in its own small PR rather than bypassing it.
