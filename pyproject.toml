@@ -29,3 +29,7 @@ extend-exclude = ["data/raw", "notebooks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# CSV fixtures mirror official headers, which are longer than a code line.
+"tests/pipeline/conftest.py" = ["E501"]

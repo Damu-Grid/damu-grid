@@ -11,7 +11,9 @@ import json
 import sys
 from pathlib import Path
 
+from pipeline.config import DEFAULT_CONFIG_PATH, load_config
 from pipeline.load import RAW_DIR, SchemaError, load_all
+from pipeline.snapshot import build_snapshot, write_snapshot
 from pipeline.store import DB_PATH, connect, create_schema, write_official
 
 PROCESSED_DIR = RAW_DIR.parent / "processed"
@@ -22,6 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=["validate", "build"])
     parser.add_argument("--raw-dir", type=Path, default=RAW_DIR)
     parser.add_argument("--db", type=Path, default=DB_PATH)
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     args = parser.parse_args(argv)
 
     try:
@@ -39,9 +42,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "validate":
         return 0 if report.ok else 2
 
+    config = load_config(args.config)
     conn = connect(args.db)
     create_schema(conn)
     write_official(conn, tables)
+    snap = build_snapshot(tables, config)
+    write_snapshot(conn, snap, config)
+    print("\n".join(snap.summary_lines()))
     print(f"database written to {args.db}")
     conn.close()
     return 0

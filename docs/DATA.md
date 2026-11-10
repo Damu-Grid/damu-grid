@@ -55,6 +55,25 @@ The live review queue is built from an **explicit closing-date snapshot** (plann
 
 Do **not** reconstruct a July inventory from final `current_facility_id` / `status` at year end. Forecast features may use only requests **strictly before** each forecast origin.
 
+### Closing snapshot as built (measured 10 November 2026, `python -m pipeline build`)
+
+As-of `2026-10-31T23:59:59+03:00`. Filters applied in `pipeline/snapshot.py`, in order:
+
+| Filter | Units |
+|---|---:|
+| `units.status = in_stock` | 8,666 |
+| removed: `expiry_date` on or before the as-of date | 0 |
+| removed: donation tested after the as-of time (not yet released) | 0 |
+| removed: last transfer received after the as-of time (still in transit) | 0 |
+| removed: last transfer destination differs from `current_facility_id` | 0 |
+| **On the shelf at as-of** | **8,666** |
+| of which receipt never confirmed (`received_at` missing), kept and flagged | 27 |
+| of which `temp_excursion_exposed = True`, kept and flagged | 111 |
+
+Reconciliation: the 8,666 units match `daily_stock` for 31 October 2026 in every facility × component × group cell (509 cells, 0 differences). By component: FFP 6,889, RBC 738, WB 516, CRYO 504, PLT 19. RBC on the shelf: 504 at hospitals, 234 at regional centres.
+
+Leakage guard: the snapshot refuses any as-of earlier than the last recorded status change or dispatch (`LeakageError`), because `current_facility_id` and `status` are year-end values. Tests in `tests/pipeline/test_snapshot.py` check that a unit received after the as-of time, or tested after it, is not counted on the shelf.
+
 ## Eligibility rules (Tier 1 default)
 
 A unit is eligible for a suggested transfer only if all of the following hold. Settings should be configurable (Tier 2 country/config).
