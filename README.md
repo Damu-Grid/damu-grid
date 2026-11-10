@@ -25,8 +25,8 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 
 ## What we built
 
-- What works now: computed RBC recommendation queue; nearest eligible fallback; local browser review with Accept, Change and Reject; transactional reservation and audit; sender dispatch and receiver receipt; a reproducible forecast comparison. Three safety and workflow tests pass.
-- What remains: a production FastAPI/Next.js stack, live as-of reconciliation, a complete cold-chain adapter, offline sync, map, SMS simulation, second-country settings, scenario replay, demo video and final slides. The current interface uses a Python standard-library HTTP server and static HTML to provide a clean local run.
+- What works now: computed RBC recommendation queue; nearest eligible fallback; local browser review with Accept, Change and Reject; transactional reservation and audit; sender dispatch and receiver receipt; a reproducible forecast comparison. A schematic site plot and table, browser pending-action tray, demo-only officer alert log and fixed settings view are included. Four safety and workflow tests pass.
+- What remains: a production FastAPI/Next.js stack, live as-of reconciliation, full cold-chain and logger-gap evaluation, server-side offline sync, real map tiles, SMS gateway, editable second-country settings, scenario replay, demo video and final slides. The current interface uses a Python standard-library HTTP server and static HTML to provide a clean local run.
 
 Demo video (3 minutes or less): [link to be added]
 Live demo: [link] · Test log-in: [user / password to be added]
@@ -36,6 +36,7 @@ Live demo: [link] · Test log-in: [user / password to be added]
 From a clean checkout with Python 3.11+, run `python -m backend.prototype` and open `http://127.0.0.1:8000`. No extra packages or credentials are needed. The first start builds an ignored local database in `data/processed/`. Use the queue to Accept a card, then Dispatch and Receive it in the move panel; the model-off selector shows fallback. The UI supplies clearly named demo actors. Run `python -m unittest discover -s tests -p test_prototype.py` for workflow tests and `python forecasting/evaluate.py` for the frozen evaluation. To reset a rehearsal, stop the server, remove only `data/processed/prototype.sqlite`, and restart it.
 
 These are synthetic replay actions under a frozen demo clock. The actor labels are not secure authentication, and the server binds to `127.0.0.1` only.
+The browser pending tray stores an action and its event ID if the local API is unreachable; manual retry sends the same ID and stops on a conflict for fresh review. It is a local demonstration of pending semantics, not a durable multi-device sync service. The site plot uses synthetic coordinates without a basemap; the list remains available. Alerts are recorded locally for demo officers and are never sent.
 
 ## Architecture
 
