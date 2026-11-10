@@ -64,6 +64,19 @@ class PrototypeTest(unittest.TestCase):
         with p.connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM audit").fetchone()[0], 1)
 
+    def test_stale_reject_and_lease_recovery(self):
+        first = self.event("accept")
+        with self.assertRaises(p.ActionError) as ctx:
+            self.event("reject")
+        self.assertEqual(ctx.exception.status, 409)
+        recovered = p.expire_leases("2026-11-01T01:00:00+03:00")
+        self.assertEqual(recovered, [first["move_id"]])
+        with p.connect() as db:
+            unit = db.execute("SELECT state,version FROM units WHERE id=?",
+                              (self.card["unit_ids"][0],)).fetchone()
+            self.assertEqual(unit["state"], "stock")
+            self.assertEqual(unit["version"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -200,6 +200,8 @@ def act(action, body):
             db.execute("UPDATE units SET state='reserved',version=version+1 WHERE id=?", (unit_id,))
             result.update(move_id=move_id, state="reserved")
         elif action == "reject":
+            if body.get("unit_version") != u["version"]:
+                raise ActionError(409, "Stale unit version")
             if u["state"] == "reserved":
                 db.execute("UPDATE moves SET state='cancelled' WHERE unit_id=? AND state='reserved'", (unit_id,))
                 db.execute("UPDATE units SET state='stock',version=version+1 WHERE id=?", (unit_id,))
@@ -224,7 +226,7 @@ def act(action, body):
                 db.execute("UPDATE units SET state='transit',version=version+1 WHERE id=?", (unit_id,))
                 result.update(move_id=m["id"], state="transit")
             else:
-                if m["state"] != "transit" or body.get("site") != m["destination"]:
+                if m["state"] != "transit" or u["state"] != "transit" or body.get("site") != m["destination"]:
                     raise ActionError(422, "Receipt blocked by state or site")
                 safety = "quarantined" if u["safety"] == "quarantined" else (
                     "cleared" if body.get("cold_chain_verified") is True and now.date().isoformat() < u["expiry"] else "unknown")
@@ -236,6 +238,28 @@ def act(action, body):
         db.execute("INSERT INTO audit VALUES(?,?,?,?,?,?)",
                    (body["event_id"], payload, json.dumps(result), body["actor_id"], body["role"], now.isoformat()))
         return result
+
+
+def expire_leases(at):
+    """Recover un-dispatched reservations at a trusted server time."""
+    when = dt.datetime.fromisoformat(at)
+    if when.tzinfo is None:
+        raise ValueError("Timezone required")
+    recovered = []
+    with LOCK, connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        for m in db.execute("SELECT * FROM moves WHERE state='reserved'").fetchall():
+            if dt.datetime.fromisoformat(m["lease_until"]) > when:
+                continue
+            db.execute("UPDATE moves SET state='lease_expired' WHERE id=?", (m["id"],))
+            db.execute("UPDATE units SET state='stock',version=version+1 WHERE id=? AND state='reserved'",
+                       (m["unit_id"],))
+            event = {"action": "expire_lease", "move_id": m["id"], "unit_id": m["unit_id"]}
+            db.execute("INSERT INTO audit VALUES(?,?,?,?,?,?)",
+                       ("expire:" + m["id"], json.dumps(event, sort_keys=True), json.dumps(event),
+                        "system", "system", when.isoformat()))
+            recovered.append(m["id"])
+    return recovered
 
 
 class Handler(BaseHTTPRequestHandler):
