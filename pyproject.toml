@@ -1,0 +1,30 @@
+[project]
+name = "damu-grid"
+version = "0.1.0"
+description = "Damu Grid: expiry-aware red-cell redistribution review queue (Terumo BCT Africa Hackathon 2026)"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["data/raw"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
