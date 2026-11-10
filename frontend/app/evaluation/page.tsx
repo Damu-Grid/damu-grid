@@ -132,17 +132,26 @@ function ResultsTable({ rows }: { rows: EvalRow[] }) {
 }
 
 function Method({ data }: { data: ForecastEval }) {
-  const range = (r?: [string, string]) => (r ? `${r[0]} to ${r[1]}` : "not stated");
+  const periods = [
+    ["Learn", data.split?.learn],
+    ["Calibrate", data.split?.calibrate],
+    ["Evaluate (weekly origins)", data.split?.evaluate],
+  ] as const;
   return (
     <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
       <dt className="text-muted-foreground">Demand</dt>
       <dd>Requested red cell units (requests.units_requested), hospitals, known blood groups</dd>
-      <dt className="text-muted-foreground">Learn</dt>
-      <dd>{range(data.split?.learn)}</dd>
-      <dt className="text-muted-foreground">Calibrate</dt>
-      <dd>{range(data.split?.calibrate)}</dd>
-      <dt className="text-muted-foreground">Evaluate (weekly origins)</dt>
-      <dd>{range(data.split?.evaluate)}</dd>
+      {periods.map(
+        ([label, r]) =>
+          r && (
+            <div key={label} className="contents">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd>
+                {r[0]} to {r[1]}
+              </dd>
+            </div>
+          ),
+      )}
       {data.excluded_unknown_group_rows !== undefined && (
         <>
           <dt className="text-muted-foreground">Excluded</dt>

@@ -62,6 +62,45 @@ test("candidate that loses is reported honestly", async ({ page }) => {
   await expect(page.getByRole("table")).toContainText("Pooled estimator (candidate)");
 });
 
+// Same shape as data/processed/forecast_metrics.json from `python -m forecasting.evaluate`.
+// Test data only.
+const metricsFile = {
+  metrics: {
+    overall: {
+      baseline: { rmse: 3.0, mae: 2.0, bias: 0.1, n: 1000 },
+      candidate: { rmse: 2.5, mae: 1.8, bias: 0.0, n: 1000 },
+    },
+    o_negative: {
+      baseline: { rmse: 0.9, mae: 0.5, bias: 0.0, n: 100 },
+      candidate: { rmse: 0.8, mae: 0.4, bias: 0.0, n: 100 },
+    },
+    rmse_reduction_pct: 16.7,
+    candidate_wins: true,
+    observations: { rows: 1000, origins: 17, hospitals: 32, groups: 8 },
+    upper_bound: {
+      method: "scaled one-sided residual bound",
+      nominal_level: 0.9,
+      overall: { covered: 880, n: 1000, rate: 0.88 },
+      o_negative: { covered: 92, n: 100, rate: 0.92 },
+      note: "Synthetic retrospective coverage; not a clinical probability",
+    },
+  },
+  exclusions: { request_rows_total: 5000, unknown_or_missing_group: 7 },
+};
+
+test("reads the forecasting module's metrics file as served", async ({ page }) => {
+  await serveEval(page, 200, metricsFile);
+  await page.goto("/evaluation");
+  await expect(page.getByText("The candidate beat the baseline")).toBeVisible();
+  await expect(page.getByText("16.7% lower")).toBeVisible();
+  const table = page.getByRole("table");
+  await expect(table).toContainText("88.0% (nominal 90%)");
+  await expect(table).toContainText("O-");
+  await expect(page.getByText("7 request rows with unknown blood group")).toBeVisible();
+  await expect(page.getByText("32 hospitals × 8 groups × 17 weekly origins")).toBeVisible();
+  await expect(page.getByText("Learn", { exact: true })).toHaveCount(0); // no split in the file
+});
+
 test("no numbers before the evaluation exists", async ({ page }) => {
   await serveEval(page, 404, { code: "not_found", message: "Not computed" });
   await page.goto("/evaluation");

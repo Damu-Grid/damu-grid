@@ -166,7 +166,7 @@ export const EvalRowSchema = z
   .passthrough();
 export type EvalRow = z.infer<typeof EvalRowSchema>;
 
-export const ForecastEvalSchema = z
+const EvalTableSchema = z
   .object({
     computed_at: z.string().optional(),
     split: z
@@ -183,7 +183,79 @@ export const ForecastEvalSchema = z
     notes: z.array(z.string()).default([]),
   })
   .passthrough();
-export type ForecastEval = z.infer<typeof ForecastEvalSchema>;
+export type ForecastEval = z.output<typeof EvalTableSchema>;
+
+// The file written by `python -m forecasting.evaluate`
+// (data/processed/forecast_metrics.json), so the API can serve it unchanged.
+const ModelMetricsSchema = z.object({ rmse: z.number(), mae: z.number(), n: z.number() });
+const CoverageSchema = z.object({ rate: z.number(), n: z.number() });
+const ForecastMetricsFileSchema = z.object({
+  metrics: z.object({
+    overall: z.object({ baseline: ModelMetricsSchema, candidate: ModelMetricsSchema }),
+    o_negative: z
+      .object({ baseline: ModelMetricsSchema, candidate: ModelMetricsSchema })
+      .optional(),
+    candidate_wins: z.boolean(),
+    observations: z
+      .object({ rows: z.number(), origins: z.number(), hospitals: z.number(), groups: z.number() })
+      .optional(),
+    upper_bound: z
+      .object({
+        nominal_level: z.number(),
+        overall: CoverageSchema,
+        o_negative: CoverageSchema.optional(),
+        note: z.string().optional(),
+      })
+      .optional(),
+  }),
+  exclusions: z.record(z.string(), z.number()).optional(),
+});
+
+// forecasting/config.py evaluates 7-day horizons only; the file does not repeat it.
+const METRICS_FILE_HORIZON_DAYS = 7;
+
+function fromMetricsFile(file: z.infer<typeof ForecastMetricsFileSchema>): ForecastEval {
+  const { metrics: m, exclusions } = file;
+  const bound = m.upper_bound;
+  const rows: EvalRow[] = [];
+  const groups = [
+    { group: "all", data: m.overall, coverage: bound?.overall },
+    { group: "O-", data: m.o_negative, coverage: bound?.o_negative },
+  ];
+  for (const { group, data, coverage } of groups) {
+    if (!data) continue;
+    const row = (model: string, x: z.infer<typeof ModelMetricsSchema>) => ({
+      model,
+      horizon_days: METRICS_FILE_HORIZON_DAYS,
+      group,
+      rmse: x.rmse,
+      mae: x.mae,
+      n: x.n,
+    });
+    rows.push(row("baseline_28d", data.baseline));
+    rows.push({
+      ...row("pooled_candidate", data.candidate),
+      ...(bound && coverage && { coverage: coverage.rate, nominal_level: bound.nominal_level }),
+    });
+  }
+  const o = m.observations;
+  return {
+    rows,
+    excluded_unknown_group_rows: exclusions?.unknown_or_missing_group,
+    operational_model: m.candidate_wins ? "pooled_candidate" : "baseline_28d",
+    notes: [
+      ...(o
+        ? [`${o.rows.toLocaleString("en-GB")} observations: ${o.hospitals} hospitals × ${o.groups} groups × ${o.origins} weekly origins.`]
+        : []),
+      ...(bound?.note ? [`Upper bound: ${bound.note}.`] : []),
+    ],
+  };
+}
+
+export const ForecastEvalSchema = z.union([
+  EvalTableSchema,
+  ForecastMetricsFileSchema.transform(fromMetricsFile),
+]);
 
 export const SnapshotSchema = z
   .object({
