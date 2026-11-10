@@ -108,6 +108,21 @@ Unit-level result on the closing snapshot: of **738 RBC** on the shelf, **637 ar
 
 Shelf lives in the model (dataset README): red cells 42 days, whole blood 35, platelets 5, plasma and cryo 1 year.
 
+### How the pipeline handles them (`pipeline/quality.py`, measured 10 November 2026)
+
+`python -m pipeline validate` writes these counts to `data/processed/quality_report.json`.
+
+| Problem | Measured in the CSVs | Handling |
+|---|---|---|
+| Facility names typed differently | 1,852 of 17,430 requests (10.6%) differ from `facilities.name`: 1,142 by case or spacing only, 710 otherwise (abbreviations) | Keyed by `facility_id`; the typed name is kept as typed and only compared. The official README says about 14%: our exact-string comparison finds 10.6%, a discrepancy we report rather than adjust |
+| Unknown patient group | 442 requests, all emergencies (5.0% of 8,768) | Stays `unknown`; never assigned to a group |
+| Missing `received_at` | 1,046 of 35,181 transfers (3.0%) | `receipt_status = unconfirmed`, no transit time; in the snapshot, 27 units on the shelf (17 RBC) are flagged and not suggested |
+| Temperature glitches | 55 readings: 17 × −99.0, 16 × 99.9, 22 × 0.0 | Classified `glitch`, never an excursion. The official README says 60; we find 55 exact matches and report the difference |
+| Readings above 6 °C (RBC/WB range) | 4,607 (none below 2 °C apart from the 0.0 glitches) | Input to DG-07 cold-chain events |
+| Logger drop-outs | 370 silences of 6 hours or more, 12,191 missing hours in total | Reported as missing evidence (DG-07), never as "no problem" |
+| Donor duplicates | 452 sets, 904 records sharing birth date, sex, county and phone last 4 | Listed for review, never merged automatically |
+| Donors with no group | 506 (1.2%) | Kept missing |
+
 ## Redistribution starting tables
 
 The official dataset README says to start redistribution work with `daily_stock`, `units`, `routes`, and `transfers`. We also need `requests` (demand), `facilities` (context), and for Tier 2 cold-chain flags `power_outages` and `temperature_logs`.

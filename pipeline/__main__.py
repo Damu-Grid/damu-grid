@@ -14,6 +14,7 @@ from pathlib import Path
 from pipeline.config import DEFAULT_CONFIG_PATH, load_config
 from pipeline.eligibility import active_reserved_units, unit_eligibility
 from pipeline.load import RAW_DIR, SchemaError, load_all
+from pipeline.quality import quality_report
 from pipeline.snapshot import build_snapshot, write_snapshot
 from pipeline.store import DB_PATH, connect, create_schema, write_official
 
@@ -40,10 +41,13 @@ def main(argv: list[str] | None = None) -> int:
     out.write_text(json.dumps({"row_counts": report.row_counts,
                                "discrepancies": report.row_count_discrepancies}, indent=2))
     print(f"report written to {out}")
+    config = load_config(args.config)
+    quality = quality_report(tables, config)
+    (PROCESSED_DIR / "quality_report.json").write_text(json.dumps(quality, indent=2))
+    print("data-quality checks: " + ", ".join(f"{k}={v:,}" for k, v in quality.items()))
     if args.command == "validate":
         return 0 if report.ok else 2
 
-    config = load_config(args.config)
     conn = connect(args.db)
     create_schema(conn)
     write_official(conn, tables)
