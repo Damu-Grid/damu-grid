@@ -1,0 +1,108 @@
+"""DG-01: loading and validation of the official CSVs."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from pipeline.load import RAW_DIR, SchemaError, dictionary_columns, load_all, read_table
+from pipeline.schema import EXPECTED_ROWS, TABLES
+
+FACILITIES = (
+    "facility_id,name,facility_type,county,lat,lon,keph_level,beds,grid_reliability,connectivity,"
+    "supply_centre_id,makes_platelets,separates_components,has_blood_fridge_backup_power,"
+    "routine_deliveries_per_week\n"
+    "RBTC-A,Centre A,regional_blood_centre,X,-1.0,36.0,,0,0.9,4G,,True,True,True,\n"
+    "HSP-1,Hospital 1,county_referral,X,-1.1,36.1,4,100,0.8,3G,RBTC-A,False,False,False,3\n"
+)
+LOGS_HEADER = "facility_id,recorded_at,temp_c\n"
+
+
+def _write(tmp: Path, name: str, text: str) -> Path:
+    """Test helper: write."""
+    (tmp / f"{name}.csv").write_text(text)
+    return tmp
+
+
+def test_reads_typed_columns(tmp_path):
+    """Reads typed columns."""
+    _write(tmp_path, "facilities", FACILITIES)
+    df = read_table("facilities", tmp_path)
+    assert df["has_blood_fridge_backup_power"].tolist() == [True, False]
+    assert df["beds"].dtype.name == "Int64"
+    assert df["keph_level"].isna().iloc[0]  # empty cell = not recorded, kept missing
+
+
+def test_missing_column_fails_loudly(tmp_path):
+    """Missing column fails loudly."""
+    _write(tmp_path, "temperature_logs", "facility_id,recorded_at\nHSP-1,2026-01-01 00:00:00\n")
+    with pytest.raises(SchemaError, match="missing columns"):
+        read_table("temperature_logs", tmp_path)
+
+
+def test_unexpected_column_fails_loudly(tmp_path):
+    """Unexpected column fails loudly."""
+    text = "facility_id,recorded_at,temp_c,extra\nHSP-1,2026-01-01 00:00:00,4.0,1\n"
+    _write(tmp_path, "temperature_logs", text)
+    with pytest.raises(SchemaError, match="unexpected columns"):
+        read_table("temperature_logs", tmp_path)
+
+
+def test_mistyped_value_fails_loudly(tmp_path):
+    """Mistyped value fails loudly."""
+    _write(tmp_path, "temperature_logs", LOGS_HEADER + "HSP-1,2026-01-01 00:00:00,warm\n")
+    with pytest.raises(SchemaError, match="not float"):
+        read_table("temperature_logs", tmp_path)
+
+
+def test_unknown_facility_id_fails(tmp_path):
+    """Unknown facility id fails."""
+    _write(tmp_path, "facilities", FACILITIES)
+    _write(tmp_path, "temperature_logs", LOGS_HEADER + "HSP-404,2026-01-01 00:00:00,4.0\n")
+    with pytest.raises(SchemaError, match="not in facilities.csv"):
+        load_all(tmp_path, ["facilities", "temperature_logs"])
+
+
+def test_raw_dir_is_not_modified(tmp_path):
+    """Raw dir is not modified."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    _write(raw, "facilities", FACILITIES)
+    before = (raw / "facilities.csv").read_bytes()
+    load_all(raw, ["facilities"])
+    assert (raw / "facilities.csv").read_bytes() == before
+    assert sorted(p.name for p in raw.iterdir()) == ["facilities.csv"]
+
+
+def test_every_problem_is_reported_in_one_run(tmp_path):
+    """Every problem is reported in one run."""
+    _write(tmp_path, "facilities", FACILITIES)
+    _write(tmp_path, "temperature_logs", LOGS_HEADER + "HSP-404,2026-01-01 00:00:00,4.0\n"
+                                                      "HSP-1,yesterday,warm\n")
+    _write(tmp_path, "routes", "from_facility_id,to_facility_id\nRBTC-A,HSP-1\n")
+    with pytest.raises(SchemaError) as err:
+        load_all(tmp_path, ["facilities", "temperature_logs", "routes"])
+    problems = " | ".join(err.value.problems)
+    assert len(err.value.problems) >= 3
+    assert "not datetime" in problems and "not float" in problems and "missing columns" in problems
+
+
+def test_schema_matches_the_official_data_dictionary():
+    """Schema matches the official data dictionary."""
+    if not (RAW_DIR / "DATA_DICTIONARY.md").exists():
+        pytest.skip("data dictionary not present")
+    documented = dictionary_columns()
+    assert set(documented) == set(TABLES)
+    for name, cols in TABLES.items():
+        assert documented[name] == list(cols), name
+
+
+@pytest.mark.dataset
+def test_official_row_counts_match_docs():
+    """Official row counts match docs."""
+    if not (RAW_DIR / "units.csv").exists():
+        pytest.skip("official dataset not present")
+    tables, report = load_all()
+    assert report.ok, report.row_count_discrepancies
+    assert {n: len(df) for n, df in tables.items()} == EXPECTED_ROWS

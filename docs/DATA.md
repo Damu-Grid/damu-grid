@@ -55,6 +55,25 @@ The live review queue is built from an **explicit closing-date snapshot** (plann
 
 Do **not** reconstruct a July inventory from final `current_facility_id` / `status` at year end. Forecast features may use only requests **strictly before** each forecast origin.
 
+### Closing snapshot as built (measured 10 November 2026, `python -m pipeline build`)
+
+As-of `2026-10-31T23:59:59+03:00`. Filters applied in `pipeline/snapshot.py`, in order:
+
+| Filter | Units |
+|---|---:|
+| `units.status = in_stock` | 8,666 |
+| removed: `expiry_date` on or before the as-of date | 0 |
+| removed: donation tested after the as-of time (not yet released) | 0 |
+| removed: last transfer received after the as-of time (still in transit) | 0 |
+| removed: last transfer destination differs from `current_facility_id` | 0 |
+| **On the shelf at as-of** | **8,666** |
+| of which receipt never confirmed (`received_at` missing), kept and flagged | 27 |
+| of which `temp_excursion_exposed = True`, kept and flagged | 111 |
+
+Reconciliation: the 8,666 units match `daily_stock` for 31 October 2026 in every facility × component × group cell (509 cells, 0 differences). By component: FFP 6,889, RBC 738, WB 516, CRYO 504, PLT 19. RBC on the shelf: 504 at hospitals, 234 at regional centres.
+
+Leakage guard: the snapshot refuses any as-of earlier than the last recorded status change or dispatch (`LeakageError`), because `current_facility_id` and `status` are year-end values. Tests in `tests/pipeline/test_snapshot.py` check that a unit received after the as-of time, or tested after it, is not counted on the shelf.
+
 ## Eligibility rules (Tier 1 default)
 
 A unit is eligible for a suggested transfer only if all of the following hold. Settings should be configurable (Tier 2 country/config).
@@ -70,6 +89,12 @@ A unit is eligible for a suggested transfer only if all of the following hold. S
 
 Historical `transfers` inform workload and optional policy comparison; they do not bypass eligibility.
 
+### Eligibility as implemented (`pipeline/eligibility.py`, measured 10 November 2026)
+
+Team defaults from `pipeline/settings/kenya_default.toml` (our choice, configurable, not a regulation): RBC must keep **168 hours (7 days)** of life after the expected arrival; expected arrival = as-of + `typical_travel_hours` + **6 hours** allowance; a unit is treated as expiring at 00:00 on its `expiry_date`; the sender keeps **2 units** of the same component and group by default (the forecast may pass a per-site reserve); the recipient must be one of the 32 hospitals with a gap supplied by the demand estimator or the fallback rule.
+
+Unit-level result on the closing snapshot, before cold-chain flags: of **738 RBC** on the shelf, **637 are eligible**; 87 are excluded because `temp_excursion_exposed = True` and 17 because their last receipt was never confirmed (3 units have both). With the DG-07 cold-chain flags, **488** remain eligible (see below). No RBC on the shelf has an unknown group. Eligible RBC: 406 at hospitals, 231 at regional centres. Each excluded unit carries every reason that applies (`reasons`), so the review screen and the judges can see why.
+
 ## Deliberate data-quality problems (official README)
 
 - About 450 donors (1%) are registered twice under different IDs.
@@ -82,6 +107,42 @@ Historical `transfers` inform workload and optional policy comparison; they do n
 - Some donors gave blood again before the minimum gap.
 
 Shelf lives in the model (dataset README): red cells 42 days, whole blood 35, platelets 5, plasma and cryo 1 year.
+
+### How the pipeline handles them (`pipeline/quality.py`, measured 10 November 2026)
+
+`python -m pipeline validate` writes these counts to `data/processed/quality_report.json`.
+
+| Problem | Measured in the CSVs | Handling |
+|---|---|---|
+| Facility names typed differently | 1,852 of 17,430 requests (10.6%) differ from `facilities.name`: 1,142 by case or spacing only, 710 by abbreviation (`CRH`, `Hosp.`, a missing "(Nairobi)"). Every one of them resolves to the recorded `facility_id`: 0 ambiguous, 0 pointing to another facility, 0 unmatched | Keyed by `facility_id`; the typed name is kept as typed and only compared. Ambiguous or wrong-site names would be flagged for a human look. The official README says about 14%: our exact-string comparison finds 10.6%, a discrepancy we report rather than adjust |
+| Unknown patient group | 442 requests, all emergencies (5.0% of 8,768) | Stays `unknown`; never assigned to a group |
+| Missing `received_at` | 1,046 of 35,181 transfers (3.0%) | `receipt_status = unconfirmed`, no transit time; in the snapshot, 27 units on the shelf (17 RBC) are flagged and not suggested |
+| Temperature glitches | 55 readings: 17 × −99.0, 16 × 99.9, 22 × 0.0 | Classified `glitch`, never an excursion. The official README says 60; we find 55 exact matches and report the difference |
+| Readings above 6 °C (RBC/WB range) | 4,607 (none below 2 °C apart from the 0.0 glitches) | Input to DG-07 cold-chain events |
+| Logger drop-outs | 373 silences of 6 hours or more, 12,230 missing hours in total (3 of them still open at the as-of time: HSP-021 for 22 h, RBTC-ELD for 8 h, RBTC-EMB for 9 h) | Reported as missing evidence (DG-07), never as "no problem" |
+| Donor duplicates | 452 sets, 904 records sharing birth date, sex, county and phone last 4 | Listed for review, never merged automatically |
+| Donors with no group | 506 (1.2%) | Kept missing |
+
+### Cold-chain flags (`pipeline/coldchain.py`, DG-07, measured 10 November 2026)
+
+Team defaults: an excursion is at least **2 consecutive hourly readings** outside 2–6 °C (glitches and gaps break a run); a logger gap is **6 hours** or more without a reading; an outage counts if it lasts **1 hour** or more with no backup on the blood fridge; a cool box above **10 °C** is an excursion (data dictionary). Fridge evidence is attached only to components kept in the blood fridge (RBC, WB); the dataset has no storage evidence for platelets or frozen plasma.
+
+| Evidence | Sites (events) | RBC on the shelf at as-of, evidence anywhere in their custody (units) |
+|---|---:|---:|
+| Fridge excursion | 553 | 100 |
+| Outage without backup | 1,017 | 120 |
+| Logger gap | 373 | 200 |
+| Cool-box excursion | — | 0 |
+| Official `temp_excursion_exposed` | — | 87 |
+| Receipt unconfirmed | — | 17 |
+
+### Other components (DG-08, Tier 2, behind a flag)
+
+Each component has its own policy in `pipeline/settings/kenya_default.toml`: shelf life (RBC 42, WB 35, PLT 5, FFP and CRYO 365 days, all matching `expiry_date − collection_date` in `units.csv`), whether it is in the queue, the remaining life required on arrival (PLT 24 hours) and a maximum road time (PLT 6 hours). Only RBC is in the queue by default. `python -m pipeline build --enable PLT` computes platelet eligibility without changing the RBC result: 19 platelets are on the shelf at as-of and all 19 pass the unit checks. Caveat: the dataset has no storage evidence for platelets (the fridge logs describe the 2–6 °C blood fridge), so platelet eligibility is less informed than RBC. Do not present multi-component support in the demo or README unless the demand path and API are ready (DG-17, DG-29).
+
+A site event is attached to a unit only if it happened while the unit was at that site, using the unit's own time-stamped custody chain (processing centre from release to first dispatch, then each destination from recorded receipt to the next dispatch), never its final location. With these flags, **488 of 738 RBC** remain eligible. A fridge that stops reporting and never reports again is silent through the as-of time: the trailing silence counts as a logger gap (3 fridges, 113 RBC on their shelves).
+
+**Check against the official flag:** of the 87 RBC on the shelf that the dataset marks `temp_excursion_exposed = True`, our evidence independently finds **all 87** (111 of 111 for RBC and WB together). It also finds evidence on **149 more RBC** (251 RBC and WB) that the official flag does not mark: short excursions, outages without backup, and logger gaps (many from the three fridges that went silent before the closing time); they are held back for review, not declared unsafe. Peak temperature is the reading furthest outside 2–6 °C.
 
 ## Redistribution starting tables
 

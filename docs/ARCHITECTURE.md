@@ -121,6 +121,10 @@ Rules (from the adopted design, to implement in-window):
 - Offline or disconnected actions stay `pending_sync` until the shared store accepts them (Tier 2).
 - Only the expected role performs coordinator, sender, receiver or safety actions. A role is not enough without facility scope in a later host; the demo uses clearly named demo actors.
 
+## Shared database schema
+
+One SQLite file, `data/processed/damu_grid.sqlite`, built by `python -m pipeline build`. Official tables keep their official names and columns; every added table is prefixed `dg_` (`dg_snapshot_meta`, `dg_snapshot_units`, `dg_cold_chain_flags`, `dg_moves`, `dg_audit_events`). The database refuses a second active move for the same unit and any edit or deletion of audit rows. Full description: `pipeline/README.md`.
+
 ## API contract
 
 See `docs/API_SPEC.md`. Shared interfaces required by the evaluation:

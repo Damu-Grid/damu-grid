@@ -1,0 +1,91 @@
+"""Command line.
+
+    python -m pipeline validate   # DG-01: check the official CSVs, write a row-count report
+    python -m pipeline build      # DG-02: validate, then build data/processed/damu_grid.sqlite
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+from pipeline.coldchain import agreement_with_official, site_flags, unit_flags, write_flags
+from pipeline.config import DEFAULT_CONFIG_PATH, as_of_timestamp, load_config
+from pipeline.eligibility import active_reserved_units, shelf_life_check, unit_eligibility
+from pipeline.load import RAW_DIR, SchemaError, load_all
+from pipeline.quality import quality_report
+from pipeline.snapshot import build_snapshot, write_snapshot
+from pipeline.store import DB_PATH, connect, create_schema, write_official
+
+PROCESSED_DIR = RAW_DIR.parent / "processed"
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run `validate` or `build` and return the process exit code."""
+    parser = argparse.ArgumentParser(prog="python -m pipeline")
+    parser.add_argument("command", choices=["validate", "build"])
+    parser.add_argument("--raw-dir", type=Path, default=RAW_DIR)
+    parser.add_argument("--db", type=Path, default=DB_PATH)
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    parser.add_argument("--enable", nargs="*", default=[], metavar="COMPONENT",
+                        help="Tier 2: also compute eligibility for these components, e.g. --enable PLT")
+    args = parser.parse_args(argv)
+
+    try:
+        tables, report = load_all(args.raw_dir)
+    except SchemaError as exc:
+        print(f"VALIDATION FAILED: {exc}", file=sys.stderr)
+        return 1
+    print("\n".join(report.lines()))
+    print("all row counts match docs/DATA.md" if report.ok else "ROW COUNT DISCREPANCIES (see above)")
+    out = PROCESSED_DIR / "validation_report.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"row_counts": report.row_counts,
+                               "discrepancies": report.row_count_discrepancies}, indent=2))
+    print(f"report written to {out}")
+    config = load_config(args.config)
+    quality = quality_report(tables, config, as_of_timestamp(config))
+    (PROCESSED_DIR / "quality_report.json").write_text(json.dumps(quality, indent=2))
+    print("data-quality checks: " + ", ".join(f"{k}={v:,}" for k, v in quality.items()))
+    if args.command == "validate":
+        return 0 if report.ok else 2
+
+    conn = connect(args.db)
+    create_schema(conn)
+    write_official(conn, tables)
+    snap = build_snapshot(tables, config)
+    write_snapshot(conn, snap, config)
+    print("\n".join(snap.summary_lines()))
+    sites = site_flags(tables, config, snap.as_of)
+    flags = unit_flags(snap.units, tables, config, snap.as_of, sites)
+    write_flags(conn, pd.concat([sites, flags], ignore_index=True))
+    print("cold-chain flags: sites " + str(sites["flag_type"].value_counts().to_dict())
+          + ", units " + str(flags.groupby("flag_type")["unit_id"].nunique().to_dict()))
+    rbc = snap.units[snap.units["component"] == "RBC"]
+    agree = agreement_with_official(rbc, flags[flags["unit_id"].isin(rbc["unit_id"])])
+    print(f"RBC officially exposed: {agree['official_exposed']}, of which our evidence finds "
+          f"{agree['official_exposed_with_our_evidence']}; our evidence on "
+          f"{agree['our_evidence_not_officially_exposed']} more units not officially flagged")
+    shelf = shelf_life_check(tables["units"], config)
+    mismatched = shelf.loc[~shelf["matches"], "component"].tolist()
+    print("shelf lives: configured values match the data" if not mismatched
+          else f"SHELF LIFE MISMATCH for {mismatched}: check the settings file")
+    if args.enable:
+        config = config.with_components_enabled(*args.enable)
+        print(f"Tier 2: also computing eligibility for {args.enable} (not the default demo scope)")
+    elig = unit_eligibility(snap.units, config, snap.as_of, active_reserved_units(conn), flags)
+    print(f"unit eligibility ({', '.join(config.enabled_components())} in the queue): "
+          f"{len(elig.eligible):,} eligible of {len(elig.units):,}")
+    for reason, n in elig.exclusion_counts().items():
+        print(f"  excluded, {reason}: {n:,}")
+    print(f"database written to {args.db}")
+    conn.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

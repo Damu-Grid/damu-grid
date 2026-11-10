@@ -1,0 +1,46 @@
+# Damu Grid pipeline settings for the synthetic Kenya-modelled dataset.
+# Team defaults chosen in-window (ADR-006), not regulations. Copy this file to set up
+# another country or site, then load it with pipeline.config.load_config(path).
+
+country = "KE"
+as_of = "2026-10-31T23:59:59+03:00"
+
+arrival_allowance_hours = 6.0
+default_sender_reserve_units = 2
+
+coolbox_max_c = 10.0
+excursion_min_hours = 2
+logger_gap_hours = 6
+outage_min_hours = 1.0
+blocking_flags = ["fridge_excursion", "outage_no_backup", "coolbox_excursion", "logger_gap", "receipt_unconfirmed"]
+
+# Shelf lives from the dataset README; storage range from the data dictionary (RBC and WB only).
+[components.RBC]
+shelf_life_days = 42
+enabled_in_queue = true
+min_remaining_hours_on_arrival = 168.0
+storage_min_c = 2.0
+storage_max_c = 6.0
+
+[components.WB]
+shelf_life_days = 35
+enabled_in_queue = false
+min_remaining_hours_on_arrival = 168.0
+storage_min_c = 2.0
+storage_max_c = 6.0
+
+# Platelets: Tier 2, behind this flag. Kept at room temperature, so the fridge logs do not describe
+# them; there is no storage evidence for platelets in the dataset.
+[components.PLT]
+shelf_life_days = 5
+enabled_in_queue = false
+min_remaining_hours_on_arrival = 24.0
+max_travel_hours = 6.0
+
+[components.FFP]
+shelf_life_days = 365
+enabled_in_queue = false
+
+[components.CRYO]
+shelf_life_days = 365
+enabled_in_queue = false
