@@ -11,7 +11,7 @@ import sqlite3
 import pytest
 
 from pipeline.__main__ import main
-from pipeline.coldchain import unit_flags
+from pipeline.coldchain import agreement_with_official, unit_flags
 from pipeline.config import load_config
 from pipeline.eligibility import unit_eligibility
 from pipeline.load import RAW_DIR, load_all
@@ -48,6 +48,9 @@ def test_rbc_eligibility_counts(official):
     flags = unit_flags(snap.units, tables, cfg, snap.as_of)
     after = unit_eligibility(snap.units, cfg, snap.as_of, unit_flags=flags)
     assert len(after.eligible) == 598
+    rbc = snap.units[snap.units["component"] == "RBC"]
+    agree = agreement_with_official(rbc, flags[flags["unit_id"].isin(rbc["unit_id"])])
+    assert agree["official_exposed_with_our_evidence"] == agree["official_exposed"] == 87
     assert set(after.eligible["component"]) == {"RBC"}
     assert after.eligible["blood_group"].isin(cfg.known_blood_groups).all()
     assert not after.eligible["temp_excursion_exposed"].any()

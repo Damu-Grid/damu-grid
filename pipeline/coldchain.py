@@ -36,13 +36,19 @@ def fridge_excursions(logs: pd.DataFrame, config: PipelineConfig, component: str
     out_of_range = out_of_range.sort_values(["facility_id", "recorded_at"])
     if out_of_range.empty:
         return pd.DataFrame(columns=["facility_id", "start_at", "end_at", "hours", "peak_c"])
+    pol = config.policy(component)
     prev = out_of_range.groupby("facility_id")["recorded_at"].shift()
     new_run = (out_of_range["recorded_at"] - prev).ne(pd.Timedelta(hours=1))
-    runs = out_of_range.assign(run=new_run.cumsum()).groupby("run").agg(
+    # Peak = the reading furthest outside the safe range (above the maximum or below the minimum).
+    t = out_of_range["temp_c"].astype(float)
+    outside = (t - pol.storage_max_c).clip(lower=0) + (pol.storage_min_c - t).clip(lower=0)
+    out_of_range = out_of_range.assign(run=new_run.cumsum(), outside=outside)
+    peak_idx = out_of_range.groupby("run")["outside"].idxmax()
+    runs = out_of_range.groupby("run").agg(
         facility_id=("facility_id", "first"), start_at=("recorded_at", "min"),
         last=("recorded_at", "max"), hours=("recorded_at", "size"),
-        peak_c=("temp_c", lambda t: t.iloc[(t - 4.0).abs().argmax()]),
     )
+    runs["peak_c"] = out_of_range.loc[peak_idx.to_numpy(), "temp_c"].to_numpy()
     runs = runs[runs["hours"] >= config.excursion_min_hours]
     runs["end_at"] = runs["last"] + pd.Timedelta(hours=1)
     return runs[["facility_id", "start_at", "end_at", "hours", "peak_c"]].reset_index(drop=True)
@@ -98,16 +104,58 @@ def unit_flags(snapshot_units: pd.DataFrame, tables: dict[str, pd.DataFrame], co
     # Fridge logs and fridge backup power only describe components kept in the 2-6 C blood fridge
     # (RBC, WB). Frozen plasma and platelets have no storage evidence in this dataset.
     in_fridge = [c for c, p in config.components.items() if p.storage_max_c is not None]
-    known = units[units["on_shelf_since"].notna() & units["component"].isin(in_fridge)]
-    known = known[["unit_id", "facility_id", "on_shelf_since"]]
-    events = sites[sites["flag_type"] != "sensor_glitch"]
-    joined = known.merge(events, on="facility_id", suffixes=("", "_site"))
+    stays = custody_intervals(units[units["component"].isin(in_fridge)], t, as_of)
+    events = sites.loc[sites["flag_type"] != "sensor_glitch"].drop(columns=["unit_id"])
+    joined = stays.merge(events, on="facility_id")
     end = joined["end_at"].fillna(joined["start_at"])
-    during = (end >= joined["on_shelf_since"]) & (joined["start_at"] <= as_of)
+    during = (end >= joined["stay_start"]) & (joined["start_at"] <= joined["stay_end"])
     for r in joined[during].itertuples(index=False):
+        where = "on this shelf" if r.facility_id == r.current_facility_id else f"at {r.facility_id}"
         rows.append((r.flag_type, r.facility_id, r.unit_id, r.start_at, r.end_at, r.value,
-                     r.source_table, r.source_ref, f"while on this shelf: {r.note}"))
+                     r.source_table, r.source_ref, f"while {where}: {r.note}"))
     return _frame(rows, "unit", config)
+
+
+def custody_intervals(units: pd.DataFrame, transfers: pd.DataFrame, as_of: pd.Timestamp) -> pd.DataFrame:
+    """Where each unit was, and when, from its own time-stamped history (not from its final location):
+    at the processing centre from release to the first dispatch, then at each destination from the
+    recorded receipt to the next dispatch or the as-of time. A stay that starts with an unconfirmed
+    receipt has no known start and is left out (the unit is already flagged `receipt_unconfirmed`)."""
+    moves = transfers[transfers["unit_id"].isin(units["unit_id"]) & (transfers["dispatched_at"] <= as_of)]
+    moves = moves.sort_values(["unit_id", "dispatched_at"])
+    first_dispatch = moves.groupby("unit_id")["dispatched_at"].first()
+    home = pd.DataFrame({
+        "unit_id": units["unit_id"].to_numpy(),
+        "facility_id": units["processed_at_id"].to_numpy(),
+        "stay_start": pd.to_datetime(units["released_on"]).to_numpy(),
+    })
+    home["stay_end"] = home["unit_id"].map(first_dispatch).fillna(as_of)
+    later = moves.assign(stay_end=moves.groupby("unit_id")["dispatched_at"].shift(-1).fillna(as_of))
+    later = later.rename(columns={"to_facility_id": "facility_id", "received_at": "stay_start"})
+    later = later[later["stay_start"].notna()][["unit_id", "facility_id", "stay_start", "stay_end"]]
+    stays = pd.concat([home, later], ignore_index=True)
+    current = units.set_index("unit_id")["facility_id"]
+    stays["current_facility_id"] = stays["unit_id"].map(current)
+    return stays[stays["stay_start"].notna() & (stays["stay_end"] >= stays["stay_start"])]
+
+
+def agreement_with_official(units: pd.DataFrame, flags: pd.DataFrame) -> dict[str, int]:
+    """Compare our site evidence (fridge excursion, outage without backup, logger gap, cool box) with
+    the official `temp_excursion_exposed` on the same units. The official flag is the dataset's own
+    record, so this checks the method; it does not make either one ground truth for a real unit."""
+    evidence = {"fridge_excursion", "outage_no_backup", "logger_gap", "coolbox_excursion"}
+    ours = set(flags.loc[flags["flag_type"].isin(evidence), "unit_id"])
+    official = units["temp_excursion_exposed"].fillna(False).astype(bool)
+    ids = units["unit_id"]
+    is_ours = ids.isin(ours)
+    return {
+        "units_compared": len(units),
+        "official_exposed": int(official.sum()),
+        "official_exposed_with_our_evidence": int((official & is_ours).sum()),
+        "official_exposed_without_our_evidence": int((official & ~is_ours).sum()),
+        "our_evidence_not_officially_exposed": int((~official & is_ours).sum()),
+        "neither": int((~official & ~is_ours).sum()),
+    }
 
 
 def _frame(rows: list[tuple], scope: str, config: PipelineConfig) -> pd.DataFrame:

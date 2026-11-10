@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from pipeline.coldchain import site_flags, unit_flags, write_flags
+from pipeline.coldchain import agreement_with_official, site_flags, unit_flags, write_flags
 from pipeline.config import DEFAULT_CONFIG_PATH, load_config
 from pipeline.eligibility import active_reserved_units, shelf_life_check, unit_eligibility
 from pipeline.load import RAW_DIR, SchemaError, load_all
@@ -64,6 +64,11 @@ def main(argv: list[str] | None = None) -> int:
     write_flags(conn, pd.concat([sites, flags], ignore_index=True))
     print("cold-chain flags: sites " + str(sites["flag_type"].value_counts().to_dict())
           + ", units " + str(flags.groupby("flag_type")["unit_id"].nunique().to_dict()))
+    rbc = snap.units[snap.units["component"] == "RBC"]
+    agree = agreement_with_official(rbc, flags[flags["unit_id"].isin(rbc["unit_id"])])
+    print(f"RBC officially exposed: {agree['official_exposed']}, of which our evidence finds "
+          f"{agree['official_exposed_with_our_evidence']}; our evidence on "
+          f"{agree['our_evidence_not_officially_exposed']} more units not officially flagged")
     shelf = shelf_life_check(tables["units"], config)
     mismatched = shelf.loc[~shelf["matches"], "component"].tolist()
     print("shelf lives: configured values match the data" if not mismatched

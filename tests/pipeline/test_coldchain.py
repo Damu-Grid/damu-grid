@@ -7,7 +7,15 @@ import sqlite3
 import pandas as pd
 import pytest
 
-from pipeline.coldchain import COLD_CHAIN_QUERY, fridge_excursions, site_flags, unit_flags, write_flags
+from pipeline.coldchain import (
+    COLD_CHAIN_QUERY,
+    agreement_with_official,
+    custody_intervals,
+    fridge_excursions,
+    site_flags,
+    unit_flags,
+    write_flags,
+)
 from pipeline.config import PipelineConfig
 from pipeline.eligibility import unit_eligibility
 from pipeline.snapshot import build_snapshot
@@ -69,6 +77,34 @@ def test_flags_carry_evidence_timestamps(units):
     assert units["start_at"].notna().all()
     gap = units[(units["unit_id"] == "U6") & (units["flag_type"] == "logger_gap")].iloc[0]
     assert gap["start_at"] == pd.Timestamp("2026-10-27 23:00") and gap["value"] == 10
+
+
+def test_custody_follows_the_unit_history(snap, mini_tables):
+    stays = custody_intervals(snap.units, mini_tables["transfers"], snap.as_of)
+    u1 = stays[stays["unit_id"] == "U1"].sort_values("stay_start")
+    assert list(u1["facility_id"]) == ["RBTC-A", "HSP-1"]
+    assert u1.iloc[0]["stay_end"] == pd.Timestamp("2026-10-19 08:00")   # dispatched from the centre
+    assert u1.iloc[1]["stay_start"] == pd.Timestamp("2026-10-19 10:30")  # received at the hospital
+    # U5's receipt was never confirmed: no invented stay at HSP-1.
+    assert list(stays.loc[stays["unit_id"] == "U5", "facility_id"]) == ["RBTC-A"]
+
+
+def test_evidence_at_an_earlier_site_is_attached(snap, mini_tables):
+    t = dict(mini_tables)
+    extra = pd.DataFrame({"outage_id": ["OUT-9"], "facility_id": ["RBTC-A"],
+                          "start_time": [pd.Timestamp("2026-10-18 10:00")],
+                          "end_time": [pd.Timestamp("2026-10-18 14:00")],
+                          "duration_hours": [4.0], "backup_power_engaged": [False]})
+    t["power_outages"] = pd.concat([t["power_outages"], extra], ignore_index=True)
+    flags = unit_flags(snap.units, t, CFG, snap.as_of)
+    u1 = flags[(flags["unit_id"] == "U1") & (flags["flag_type"] == "outage_no_backup")]
+    assert len(u1) == 1 and u1.iloc[0]["facility_id"] == "RBTC-A" and "at RBTC-A" in u1.iloc[0]["note"]
+
+
+def test_agreement_with_the_official_flag(snap, units):
+    rep = agreement_with_official(snap.units[snap.units["component"] == "RBC"], units)
+    assert rep["official_exposed"] == 1 and rep["official_exposed_with_our_evidence"] == 1  # U6
+    assert rep["our_evidence_not_officially_exposed"] == 1                                 # U1
 
 
 def test_fridge_evidence_is_not_attached_to_platelets(units):
