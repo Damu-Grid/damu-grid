@@ -44,8 +44,10 @@ export function ExpiryChip({ expiryDate, asOf }: { expiryDate: string; asOf: str
     (Date.parse(`${expiryDate}T23:59:59+03:00`) - Date.parse(asOf)) / 86_400_000,
   );
   // Gold = expiring (reference look); red only when it is close to unusable.
-  const tone =
-    days <= 3
+  // An expiry that does not parse is a warning, never a calm "fine".
+  const tone = !Number.isFinite(days)
+    ? "bg-warn text-warn-foreground"
+    : days <= 3
       ? "bg-expiry text-expiry-foreground"
       : days <= 10
         ? "bg-warn text-warn-foreground"

@@ -41,7 +41,7 @@ export function AppRail() {
       </Link>
       <span className="hidden h-px w-7 bg-line md:block" aria-hidden />
       {NAV.map(({ href, label, Icon }) => {
-        const active = pathname.startsWith(href);
+        const active = pathname === href || pathname.startsWith(`${href}/`);
         return (
           <Link
             key={href}
