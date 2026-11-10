@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { SyntheticBadge } from "@/components/status-chips";
+import { PageHeader } from "@/components/page-header";
 import { ApiError } from "@/lib/api/client";
 import { useForecastEval, useSnapshot } from "@/lib/api/hooks";
 import type { EvalRow, ForecastEval } from "@/lib/api/schemas";
@@ -212,16 +212,12 @@ export default function EvaluationPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Forecast vs baseline</h1>
-          <p className="text-muted-foreground">
-            The demand forecast behind recipient gaps and sender reserves, tested against a
-            28-day average.
-          </p>
-        </div>
-        <SyntheticBadge />
-      </div>
+      <PageHeader title="Forecast vs baseline">
+        <p>
+          The demand forecast behind recipient gaps and sender reserves, tested against a 28-day
+          average.
+        </p>
+      </PageHeader>
 
       {isPending && <p className="text-muted-foreground">Loading results…</p>}
 

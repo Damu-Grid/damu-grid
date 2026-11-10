@@ -19,9 +19,10 @@ function Chip({ className, children, title }: ChipProps) {
 export function SyntheticBadge() {
   return (
     <Chip
-      className="bg-muted text-muted-foreground"
+      className="rounded-full bg-gold-soft px-2.5 text-[11px] font-semibold tracking-[0.12em] text-warn-foreground uppercase"
       title="Official synthetic starter dataset. Not facts about real Kenyan facilities."
     >
+      <i className="size-1.5 rounded-full bg-gold" aria-hidden />
       Synthetic data
     </Chip>
   );
@@ -42,9 +43,17 @@ export function ExpiryChip({ expiryDate, asOf }: { expiryDate: string; asOf: str
   const days = Math.floor(
     (Date.parse(`${expiryDate}T23:59:59+03:00`) - Date.parse(asOf)) / 86_400_000,
   );
-  const urgent = days <= 7;
+  // Gold = expiring (reference look); red only when it is close to unusable.
+  // An expiry that does not parse is a warning, never a calm "fine".
+  const tone = !Number.isFinite(days)
+    ? "bg-warn text-warn-foreground"
+    : days <= 3
+      ? "bg-expiry text-expiry-foreground"
+      : days <= 10
+        ? "bg-warn text-warn-foreground"
+        : "bg-soft text-ink-2";
   return (
-    <Chip className={urgent ? "bg-expiry text-expiry-foreground" : "bg-warn text-warn-foreground"}>
+    <Chip className={tone}>
       Expires {expiryDate}
       {Number.isFinite(days) && ` · ${days} day${days === 1 ? "" : "s"} after as-of`}
     </Chip>

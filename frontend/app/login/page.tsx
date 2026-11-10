@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
 import { ROLES } from "@/lib/api/schemas";
 import { DEMO_ACTORS, useRole } from "@/lib/session";
 
@@ -19,12 +20,9 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Choose a demo role</h1>
-        <p className="text-muted-foreground">
-          Test accounts for judges. These are demo roles, not production sign-in.
-        </p>
-      </div>
+      <PageHeader title="Choose a demo role">
+        <p>Test accounts for judges. These are demo roles, not production sign-in.</p>
+      </PageHeader>
       <div className="grid gap-4 sm:grid-cols-2">
         {ROLES.map((role) => (
           <Card key={role}>

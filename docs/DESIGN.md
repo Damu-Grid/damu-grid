@@ -45,6 +45,40 @@ Do not copy a competitor product, and do not imitate consumer wellness palettes.
 
 Official kit includes `data/raw/logos.png`. Confirm permitted use with the brief/recap before putting sponsor marks on slides or the app chrome. When in doubt, use text credit only.
 
+## Reference look (adopted 10 Nov 2026)
+
+The visual reference is Blessings' platelet control-room demo: <https://blessingsmambwe.web.app/damu-grid/>. We match its **look**; we do **not** copy its code. That site predates the build window, so every line here is rewritten in `frontend/`, and only public-domain data (Natural Earth) is reused, with attribution.
+
+**Tokens** (implemented in `frontend/app/globals.css`):
+
+| Token | Value | Use |
+|---|---|---|
+| navy | `#12306b` | primary buttons, headings, active rail icon, fresh stock |
+| blue / blue-2 / pale | `#3f7ee0` / `#8db3ee` / `#cfdcf3` | links, focus, mid shelf life, empty ring |
+| gold / gold-ink / gold-soft | `#d4a23a` / `#8a6414` / `#f6ecd6` | **expiring**, synthetic pill |
+| red | `#cf4a3f` | critical, unmet, close to unusable |
+| green | `#2f7d4f` (text on light green: `#2a7047`) | received |
+| ink / ink-2 / line / soft | `#0f2350` / `#4a5b7d` / `#e4eaf4` / `#f1f5fb` | text, secondary text, borders, hover |
+| background | gradient `#f5f8fd` → `#dce6f7` | page |
+| card | white 86% + blur, 16 px radius, soft navy shadow | every surface |
+
+**Type:** DM Sans 400/500/600/700; IBM Plex Mono for IDs and code. Eyebrow labels: 12 px, semibold, uppercase, 0.16em tracking.
+
+**Layout:** a 76 px icon rail on the left (brand mark, one icon per screen, role initials and switch-role at the bottom); each screen starts with an eyebrow ("Red cell network · Kenya" + gold **Synthetic data** pill), an h1, and a one-line purpose.
+
+**Brand mark exception:** the single small drop in the rail is the logo, not decoration. The "no blood-drop decoration" rule above still applies everywhere else.
+
+**Map (DG-34, owner Timi; build only once agreed):**
+- Canvas **hex-dot map**, no map library or tiles (works offline and on 2G). Land dots in grey (`#e3e9f3`), Kenya in blue tints, each Kenyan dot shaded by its nearest facility's status. Outlines from **Natural Earth 1:50m (public domain)**; cite it on the map.
+- Facilities are white discs with a **ring split by shelf life left** (gold = expiring → blue → navy = fresh), stock count inside, name and demand per day beside.
+- Transfers are **curved arrows** with a unit-count bubble: navy for routine top-ups, gold for rescues of expiring stock, dashed while awaiting a decision.
+- Late data gets a **dashed halo**; unmet demand a **red ring** with "N unmet".
+- A legend panel of status rows with counts: well stocked, below safety level, critically low, at risk of expiring, data arriving late. The table stays the source of truth if the map fails.
+
+**Charts:** one big number with a plain-language caption, a "Damu Grid vs baseline" comparison table, and a small two-line **cumulative sparkline** (ours navy, baseline light). Only in-window numbers; never a "saved" figure that was not computed from our own runs.
+
+**Suggestion cards:** site-initial avatar, "From → To", blood-group badge, units on the right, a short gold or navy bar, the plain-language reason, and a muted line of facts ("Top-up · 3 days of shelf life left · sender confirmed").
+
 ## Accessibility and keyboard demo
 
 - Visible focus, labelled buttons, not icon-only primary actions.
