@@ -25,9 +25,9 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 
 ## What we built
 
-- What works now: the FastAPI health, snapshot, and pipeline-backed suggestions endpoints; the human review workflow; the append-only audit trail; and the synthetic forecasting evaluation harness. When the processed pipeline snapshot is unavailable, `/suggestions` reports that state instead of returning fake computed cards.
+- What works now: the FastAPI health, snapshot, and pipeline-backed suggestions endpoints (each card carries a send-by date); the human review workflow (Accept / Change / Reject with audit); the append-only audit trail; the synthetic forecasting evaluation harness; a transfer map with stock/risk colouring and suggested transfer lines; an offline mode that keeps the last snapshot and suggestions readable with a last-updated banner and queues review actions for sync on reconnect; and an alerts panel (shortages, units near expiry, cold-chain holds). When the processed pipeline snapshot is unavailable, `/suggestions` reports that state instead of returning fake computed cards.
   - [x] **Data pipeline** (`pipeline/`): validates all 11 official CSVs against the data dictionary, builds one shared SQLite database, the 31 October 2026 closing snapshot (8,666 units, reconciled with `daily_stock` cell by cell), the red-cell eligibility engine (488 of 738 RBC on the shelf can be suggested; every other unit carries its exclusion reasons), data-quality handling and cold-chain flags checked against the official exposure flag (87 of 87 exposed red cells found), with its own automated tests.
-- What remains in progress: completing the demo video and slides. Tier 2 items are tracked in `docs/IMPLEMENTATION_PLAN.md`.
+- What remains in progress: completing the demo video and slides. Shipped from Tier 2 so far: map, offline mode with sync queue, alerts panel, and send-by dates. Still future work: multi-component support (platelets and frozen plasma need their own shelf-life and routing policies before they are treated like red cells) and the remaining Tier 2 items tracked in `docs/IMPLEMENTATION_PLAN.md`.
 
 Demo video (3 minutes or less): [link to be added]
 Live demo: [link] · Test log-in: [user / password to be added]
@@ -75,7 +75,13 @@ The full demo setup follows this outline:
 1. Copy `.env.example` to `.env` (no secrets in git).
 2. Install frontend deps with `pnpm` (see `frontend/README.md`).
 3. Start the API and the Next.js app.
-4. Sign in with the demo coordinator / sender / receiver accounts.
+4. Open the app (defaults to the FastAPI backend; set `NEXT_PUBLIC_BACKEND=prototype` to use the frozen demo backend instead), then sign in with the demo coordinator / sender / receiver accounts.
+
+```bash
+cd frontend && pnpm install && pnpm dev   # http://localhost:3000
+```
+
+Frontend checks: `pnpm lint`, `pnpm typecheck`, `pnpm build:check`. The review queue, transfer map (`/map`) and alerts (`/alerts`) all read the live backend; with no connection the app shows the last saved snapshot with a last-updated banner and queues review actions for sync on reconnect.
 
 Judges should assume a laptop and about 10 minutes. A Docker Compose path is a Tier 2 delivery target.
 
@@ -139,7 +145,7 @@ Facilities in the starter data include `grid_reliability`, `connectivity` (2G / 
 
 ## AI tools we used
 
-OpenAI Codex assisted the in-window evaluation harness, tests, kit inventory, benchmark reproduction and README edits. GitHub Copilot (Copilot SDK in VS Code) assisted with the pipeline-backed local suggestion provider, its tests, and backend setup documentation. The team must add every other AI coding tool actually used on its own work. Every team member must be able to explain the submitted code.
+OpenAI Codex assisted the in-window evaluation harness, tests, kit inventory, benchmark reproduction and README edits. GitHub Copilot (Copilot SDK in VS Code) assisted with the pipeline-backed local suggestion provider, its tests, and backend setup documentation. CodeRabbit provided automated review comments on pull requests; every remark it raised was checked by a human before any code changed. Muse Spark (Muse Code) assisted with the simulation rebuild, the send-by field, the transfer map, and the offline/alerts frontend work. The team must add every other AI coding tool actually used on its own work. Every team member must be able to explain the submitted code.
 
 ## Team
 
