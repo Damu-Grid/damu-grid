@@ -80,7 +80,7 @@ def max_wait_days(
     return max(0, min(config.max_wait_days, slack))
 
 
-def _aged(
+def aged_positions(
     left: np.ndarray, rates: np.ndarray, days: int, size_pmf: Sequence[float], cap_extra: int
 ) -> np.ndarray:
     """Positions of the units of a sorted queue still on the shelf after `days` days.
@@ -143,7 +143,7 @@ def gain_by_day(
             cut = np.minimum(s_left, tau)
             pi_loc = fefo_use_probabilities(cut, s_rates, size_pmf, cap_extra)[batch_idx]
 
-        d_kept = d_left[_aged(d_left, d_rates, arrival, size_pmf, cap_extra)] - arrival
+        d_kept = d_left[aged_positions(d_left, d_rates, arrival, size_pmf, cap_extra)] - arrival
         d_future = d_rates[arrival:]
         queue = list(d_kept)
         previous = expected_use(queue, d_future, size_pmf, cap_extra)
@@ -157,7 +157,7 @@ def gain_by_day(
                 contribution, previous = current - previous, current
             value += pi_loc[k] + (1.0 - pi_loc[k]) * contribution
 
-        s_kept = _aged(s_left, s_rates, tau, size_pmf, cap_extra)
+        s_kept = aged_positions(s_left, s_rates, tau, size_pmf, cap_extra)
         s_future = s_rates[tau:]
         is_batch = np.isin(s_kept, batch_idx)
         with_batch = fefo_use_probabilities(s_left[s_kept] - tau, s_future, size_pmf, cap_extra)
