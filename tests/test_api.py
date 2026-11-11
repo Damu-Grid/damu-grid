@@ -145,3 +145,47 @@ def test_suggestions_serialize_optional_pipeline_values_as_null(tmp_path) -> Non
     assert body["explanation_source"] == "template"
     assert body["explanation_model"] is None
     assert body["latency_ms"] is None
+
+
+def test_build_suggestion_populates_send_by_from_expiry_travel_and_buffer() -> None:
+    from datetime import date, datetime, timedelta, timezone
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from backend.app.ranking import SQLiteSuggestionProvider
+
+    eat = timezone(timedelta(hours=3))
+    provider = SQLiteSuggestionProvider(
+        database_path=Path("unused.sqlite"),
+        as_of=datetime(2026, 11, 1, 12, 0, tzinfo=eat),
+    )
+    context = {
+        "as_of": provider.as_of,
+        "facilities": pd.DataFrame(
+            [{"facility_id": "RBTC-NBO", "name": "Nairobi Centre"},
+             {"facility_id": "HSP-004", "name": "HSP-004"}]
+        ),
+        "config": SimpleNamespace(arrival_allowance_hours=6.0),
+    }
+    units = [{
+        "unit_id": "U1",
+        "facility_id": "RBTC-NBO",
+        "component": "RBC",
+        "blood_group": "O+",
+        "expiry_date": pd.Timestamp("2026-11-15"),
+    }]
+    settings = {"sender_reserve_units": 2, "remaining_life_min_days": {"RBC": 10}}
+
+    card = provider._build_suggestion(
+        context, units, "HSP-004", (0.5, "good"), 5, 3, "expiry_aware", settings
+    )
+    # 2026-11-15 00:00 minus (0.5 travel + 6 allowance + 240 buffer) hours.
+    assert card.send_by == date(2026, 11, 4)
+    assert card.send_by <= card.expiry_date
+
+    unknown_route = provider._build_suggestion(
+        context, units, "HSP-004", (None, None), 5, 3, "nearest", settings
+    )
+    assert unknown_route.send_by is None
