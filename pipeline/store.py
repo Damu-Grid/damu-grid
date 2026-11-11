@@ -164,11 +164,40 @@ class SchemaVersionError(RuntimeError):
     """The database was built by a different version of this schema: rebuild it."""
 
 
+def _expected_pk(name: str) -> list[str]:
+    """Primary key columns the current schema expects for an official table."""
+    if name in _COMPOSITE:
+        return list(_COMPOSITE[name])
+    col = _PRIMARY.get(name)
+    return [col] if col is not None else []
+
+
+def _is_legacy_table(conn: sqlite3.Connection, name: str) -> bool:
+    """A table created by pre-versioning code has no usable primary key.
+
+    CREATE TABLE IF NOT EXISTS never upgrades such tables, so detect them
+    here instead of failing later with a cryptic foreign-key mismatch.
+    """
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone():
+        return False
+    expected = _expected_pk(name)
+    if not expected:
+        return False
+    actual = [r[1] for r in conn.execute(f"PRAGMA table_info({name})") if r[5]]
+    return actual != expected
+
+
 def create_schema(conn: sqlite3.Connection) -> None:
     """Create every table, index and trigger. Safe to run twice on the same schema version."""
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version not in (0, SCHEMA_VERSION):
         raise SchemaVersionError(f"database schema v{version}, code expects v{SCHEMA_VERSION}: "
+                                 "delete data/processed/damu_grid.sqlite and run python -m pipeline build")
+    legacy = sorted(name for name in TABLES if _is_legacy_table(conn, name))
+    if legacy:
+        raise SchemaVersionError(f"legacy tables without the expected primary key ({', '.join(legacy)}): "
                                  "delete data/processed/damu_grid.sqlite and run python -m pipeline build")
     conn.execute("PRAGMA foreign_keys = ON")
     for name in TABLES:
