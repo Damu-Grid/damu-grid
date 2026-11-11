@@ -1,6 +1,6 @@
 "use client";
 
-import { useOfflineSync, useSnapshot } from "@/lib/api/hooks";
+import { useSnapshot } from "@/lib/api/hooks";
 import { formatNairobi, readCache } from "@/lib/offline/cache";
 import { useOutboxCount } from "@/lib/offline/cache";
 import { useOnline } from "@/lib/offline/use-online";
@@ -13,7 +13,6 @@ import { useOnline } from "@/lib/offline/use-online";
 export function OfflineBanner() {
   const online = useOnline();
   const pending = useOutboxCount();
-  useOfflineSync();
   const snapshot = useSnapshot() as ReturnType<typeof useSnapshot> & {
     cachedAt?: string | null;
     isOfflineData?: boolean;

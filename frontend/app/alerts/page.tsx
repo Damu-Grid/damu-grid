@@ -22,7 +22,7 @@ export default function AlertsPage() {
   const shortages = list.filter((s) => (s.recipient_gap_units ?? 0) > 0);
   const nearExpiry = list.filter((s) => {
     const days = daysToExpiry(s.expiry_date, asOf);
-    return days !== null && days <= NEAR_EXPIRY_DAYS;
+    return days !== null && days >= 0 && days <= NEAR_EXPIRY_DAYS;
   });
   const holds = heldMoves.data ?? [];
   const holdsUnavailable = heldMoves.error instanceof ApiError;
