@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Droplet, ListChecks, LogOut, PackageCheck, Truck } from "lucide-react";
+import { BarChart3, Bell, Droplet, ListChecks, LogOut, Map as MapIcon, PackageCheck, Truck } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { DEMO_ACTORS, useRole } from "@/lib/session";
@@ -8,9 +8,11 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/queue", label: "Review queue", Icon: ListChecks },
+  { href: "/map", label: "Transfer map", Icon: MapIcon },
   { href: "/dispatch", label: "Dispatch", Icon: Truck },
   { href: "/receive", label: "Receive", Icon: PackageCheck },
   { href: "/evaluation", label: "Evaluation", Icon: BarChart3 },
+  { href: "/alerts", label: "Alerts", Icon: Bell },
 ];
 
 const initials = (title: string) =>

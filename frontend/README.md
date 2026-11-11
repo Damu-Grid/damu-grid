@@ -26,7 +26,7 @@ The app talks to `/api/backend/*`, which Next.js relays to `BACKEND_URL` (defaul
 
 | Setting (in `frontend/.env.local`) | Default | Meaning |
 |---|---|---|
-| `NEXT_PUBLIC_BACKEND` | `prototype` | `prototype` = Blessings' `backend/prototype.py` (#50); `fastapi` (alias `spec`) = the team API in `backend/app` (#51), run with `uv run uvicorn backend.app.main:app --port 8000` |
+| `NEXT_PUBLIC_BACKEND` | `fastapi` | `fastapi` (alias `spec`) = the team API in `backend/app` (#51), run with `uv run uvicorn backend.app.main:app --port 8000`; `prototype` = Blessings' `backend/prototype.py` (#50) |
 | `BACKEND_URL` | `http://127.0.0.1:8000` | Where the relay sends requests |
 | `NEXT_PUBLIC_API_BASE_URL` | `/api/backend` | Set a full URL only to bypass the relay (the backend must then allow CORS) |
 
