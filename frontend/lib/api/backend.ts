@@ -1,7 +1,7 @@
 // One interface for the screens, two backends behind it:
 //  - "fastapi" (alias "spec"): the team API in backend/app (#51), docs/API_SPEC.md
 //  - "prototype": Blessings' backend/prototype.py (#50)
-// Choose with NEXT_PUBLIC_BACKEND=fastapi|prototype (default prototype).
+// Choose with NEXT_PUBLIC_BACKEND=prototype|fastapi (default fastapi).
 import { z } from "zod";
 import { ApiError, apiFetch } from "./client";
 import {
@@ -387,6 +387,4 @@ const prototypeBackend: Backend = {
 };
 
 export const backend: Backend =
-  process.env.NEXT_PUBLIC_BACKEND === "fastapi" || process.env.NEXT_PUBLIC_BACKEND === "spec"
-    ? specBackend
-    : prototypeBackend;
+  process.env.NEXT_PUBLIC_BACKEND === "prototype" ? prototypeBackend : specBackend;
