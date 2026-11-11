@@ -32,6 +32,8 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 Demo video (3 minutes or less): [link to be added]
 Live demo: [link] · Test log-in: [user / password to be added]
 
+**Submission snapshot:** the code as of the 12:00 EAT deadline (Wed 11 Nov 2026) is tagged [`submission-final`](https://github.com/Damu-Grid/damu-grid/tree/submission-final). Commits after 12:00 EAT (#72 onward) are deployment fixes only; no features or UI changes.
+
 ## How to run it
 
 Requirements: Python 3.11+ and [uv](https://docs.astral.sh/uv) (or `pip install pandas numpy pytest ruff`).
