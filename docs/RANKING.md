@@ -205,10 +205,10 @@ the history), and the total is a sum of per-batch checks, not one joint simulati
 `SQLiteSuggestionProvider._build_suggestion` builds the provider's suggestion, then `_annotate`
 copies the annotation of its batch:
 
-- `expected_use_*` and `survival_score_*` come from `annotate_batch`. The provider's `send_by`
-  is the latest safe dispatch date (DG-17); the recommended day replaces it but never passes it,
-  and when the gain does not cover a special trip the safe date is kept with the warning
-  `net_gain_below_minimum`;
+- `expected_use_*` and `survival_score_*` come from `annotate_batch`. `send_by` is the
+  recommended day, never later than the latest safe dispatch date of the eligibility rule
+  (DG-17); when the gain does not cover a special trip, `send_by` is that safe date and the
+  warning `net_gain_below_minimum` is added;
   `uncertainty` becomes `fefo_compound_poisson` (nominal level 0.8, the 10th to 90th demand-rate
   percentiles), the provider's reason is kept and ours is appended, and our warning
   (`timing_uses_special_trip`, `routine_run_available` or `net_gain_below_minimum`) is added after
@@ -217,9 +217,8 @@ copies the annotation of its batch:
   `tests/test_ranking.py` checks that the list is identical with and without the score.
 - **Nothing is guessed.** If the score cannot be computed for a batch (a blood-centre sender, a
   database without unit history or routine calendar, a missing route time), or the result does not
-  validate the `Suggestion` schema, the four score fields stay `null`, `send_by` stays the
-  provider's latest safe dispatch date, and the provider's uncertainty and reason are kept. Tests
-  cover both cases.
+  validate the `Suggestion` schema, `expected_use_*`, `survival_score_*` and `send_by` all stay
+  `null`, and the provider's uncertainty and reason are kept. Tests cover both cases.
 - The shelves and demand model are loaded once per database file and as-of time and shared by
   later requests (the snapshot does not change between requests; eligibility is rechecked every
   time). Rebuilding the database reloads them.

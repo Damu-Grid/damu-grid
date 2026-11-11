@@ -581,19 +581,20 @@ class SQLiteSuggestionProvider:
         Eligibility has already decided that this move may be suggested; the score never adds,
         drops or reorders suggestions. If the score cannot be computed for this batch (no demand
         model for the sender, no unit history, missing route time), or its result is not a valid
-        Suggestion, the suggestion is returned unchanged: the score fields stay empty and send_by
-        stays the provider's latest safe dispatch date (DG-17), never a guessed day.
+        Suggestion, expected_use_*, survival_score_* and send_by are all left empty instead of
+        guessed; everything else on the card is the provider's.
         """
+        unscored = suggestion.model_copy(update={"send_by": None})
         inputs = self._ranking_inputs(context)
         if inputs is None or route[0] is None:
-            return suggestion
+            return unscored
         note = self._batch_note(context, inputs, units, destination, float(route[0]), settings)
         if note is None:
-            return suggestion
+            return unscored
         try:
             update = note.as_suggestion_update(suggestion.warnings)
             if not all(math.isfinite(update[key]) for key in ANNOTATED_NUMBERS):
-                return suggestion
+                return unscored
             # The provider's send_by is the latest safe dispatch date (DG-17, eligibility rule).
             # The recommended day never passes it; with no recommended day (the gain does not
             # cover a trip), the deadline is kept.
@@ -611,7 +612,7 @@ class SQLiteSuggestionProvider:
             return Suggestion.model_validate({**suggestion.model_dump(), **update})
         except Exception as exc:  # any failure means "no score", never a crash
             LOGGER.info("survival fields rejected for %s: %s", suggestion.suggestion_id, exc)
-            return suggestion
+            return unscored
 
 
 def clear_ranking_cache() -> None:

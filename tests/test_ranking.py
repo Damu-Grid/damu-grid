@@ -1,14 +1,15 @@
 import os
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.audit import AuditStore
 from backend.app.explanations import ExplanationService, ExplanationSettings
 from backend.app.main import create_app
-from backend.app.ranking import SQLiteSuggestionProvider, clear_ranking_cache
+from backend.app.ranking import SQLiteSuggestionProvider, _send_by_date, clear_ranking_cache
 from backend.app.schemas import Suggestion
 from backend.app.services import SuggestionServiceUnavailable
 from backend.app.state import ActionStore
@@ -283,6 +284,7 @@ SURVIVAL_FIELDS = (
     "expected_use_if_moved",
     "survival_score_if_stays",
     "survival_score_if_moved",
+    "send_by",
 )
 
 
@@ -375,9 +377,6 @@ def test_survival_fields_stay_empty_when_no_score_can_be_computed(tmp_path):
     assert {s.unit_ids[0] for s in suggestions} == {"U0", "U1"}  # eligibility decided
     for suggestion in suggestions:
         assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
-        # send_by stays the provider's latest safe dispatch date (DG-17), not a guessed day:
-        # 2026-12-01 00:00 minus (2 h travel + 6 h allowance + 10 days)
-        assert suggestion.send_by == date(2026, 11, 20)
         assert suggestion.uncertainty.method == "trailing_28_day_request_average"
         assert "fefo" not in suggestion.reason_deterministic
 
@@ -397,7 +396,11 @@ def test_survival_fields_are_filled_when_a_score_can_be_computed(tmp_path, monke
 
     # the score never adds, drops or reorders what eligibility allowed
     assert _moves(scored) == _moves(plain) and scored
-    deadlines = {s.suggestion_id: s.send_by for s in plain}
+    # latest safe dispatch date (DG-17), which caps the recommended day
+    deadlines = {
+        s.suggestion_id: _send_by_date(pd.Timestamp(s.expiry_date), s.typical_travel_hours, 6.0, 10)
+        for s in scored
+    }
     assert "A-exposed" not in {unit for s in scored for unit in s.unit_ids}
     hospital = [s for s in scored if s.from_facility_id == "HSP-A"]
     centre = [s for s in scored if s.from_facility_id == "RBTC-X"]
@@ -421,7 +424,6 @@ def test_survival_fields_are_filled_when_a_score_can_be_computed(tmp_path, monke
     assert any("timing_uses_special_trip" in s.warnings for s in hospital)
     for suggestion in centre:  # no demand model for a blood centre: nothing is guessed
         assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
-        assert suggestion.send_by == deadlines[suggestion.suggestion_id]
         assert suggestion.uncertainty.method == "trailing_28_day_request_average"
     for suggestion in plain:
         assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)

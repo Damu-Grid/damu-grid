@@ -154,7 +154,7 @@ def test_build_suggestion_populates_send_by_from_expiry_travel_and_buffer() -> N
 
     import pandas as pd
 
-    from backend.app.ranking import SQLiteSuggestionProvider
+    from backend.app.ranking import SQLiteSuggestionProvider, _send_by_date
 
     eat = timezone(timedelta(hours=3))
     provider = SQLiteSuggestionProvider(
@@ -181,9 +181,14 @@ def test_build_suggestion_populates_send_by_from_expiry_travel_and_buffer() -> N
     card = provider._build_suggestion(
         context, units, "HSP-004", (0.5, "good"), 5, 3, "expiry_aware", settings
     )
-    # 2026-11-15 00:00 minus (0.5 travel + 6 allowance + 240 buffer) hours.
-    assert card.send_by == date(2026, 11, 4)
-    assert card.send_by <= card.expiry_date
+    # 2026-11-15 00:00 minus (0.5 travel + 6 allowance + 240 buffer) hours: the latest safe
+    # dispatch date, which caps the survival score's recommended day (DG-19).
+    deadline = _send_by_date(pd.Timestamp("2026-11-15"), 0.5, 6.0, 10)
+    assert deadline == date(2026, 11, 4)
+    assert deadline <= card.expiry_date
+    # No survival score can be computed here (no database, blood-centre sender), so send_by is
+    # left empty rather than guessed.
+    assert card.send_by is None
 
     unknown_route = provider._build_suggestion(
         context, units, "HSP-004", (None, None), 5, 3, "nearest", settings
