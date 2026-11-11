@@ -1,10 +1,12 @@
 import hashlib
+import logging
 import math
 import sqlite3
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import pandas as pd
@@ -13,6 +15,27 @@ from backend.app.schemas import Suggestion, Uncertainty
 from backend.app.services import SuggestionServiceUnavailable
 from pipeline.config import PipelineConfig, load_config
 from pipeline.eligibility import NetworkIndex, check_move, unit_eligibility
+from ranking.annotate import (
+    AnnotationInputs,
+    BatchAnnotation,
+    annotate_batch,
+    load_annotation_inputs,
+)
+from ranking.config import RankingConfig
+
+LOGGER = logging.getLogger(__name__)
+# Survival-score inputs and batch annotations, shared across requests for one database file and
+# as-of time (the snapshot does not change between requests; eligibility is rechecked each time).
+_RANKING_STATE: dict[str, Any] = {}
+_RANKING_LOCK = Lock()
+RANKING_CONFIG = RankingConfig()
+BATCH_COLUMNS = ["unit_id", "facility_id", "blood_group", "component", "expiry_date"]
+ANNOTATED_NUMBERS = (
+    "expected_use_if_stays",
+    "expected_use_if_moved",
+    "survival_score_if_stays",
+    "survival_score_if_moved",
+)
 
 
 class SQLiteSuggestionProvider:
@@ -436,7 +459,7 @@ class SQLiteSuggestionProvider:
         facility_names = dict(
             zip(context["facilities"]["facility_id"], context["facilities"]["name"], strict=True)
         )
-        return Suggestion(
+        suggestion = Suggestion(
             suggestion_id=suggestion_id or _suggestion_id(snapshot_time, first["unit_id"]),
             as_of=snapshot_time,
             data_age_hours=data_age,
@@ -480,6 +503,123 @@ class SQLiteSuggestionProvider:
                 "unrecorded demand is not measured."
             ],
         )
+        return self._annotate(context, suggestion, units, destination, route, settings)
+
+    def _ranking_inputs(self, context: dict[str, Any]) -> AnnotationInputs | None:
+        """Complete shelves and demand model for the survival score.
+
+        Loaded once per database file and as-of time, and shared by every request until the
+        pipeline rebuilds the file. None when they cannot be loaded (an older or partial
+        database): the suggestions then keep their survival fields empty instead of guessing.
+        """
+        try:
+            stamp = self.database_path.stat().st_mtime_ns
+        except OSError:
+            return None
+        key = (str(self.database_path.resolve()), stamp, context["as_of"].isoformat())
+        with _RANKING_LOCK:
+            if _RANKING_STATE.get("key") != key:
+                try:
+                    inputs = load_annotation_inputs(
+                        self.database_path, context["as_of"], RANKING_CONFIG
+                    )
+                except Exception as exc:  # any failure means "no score", never a crash
+                    LOGGER.warning("survival score unavailable: %s", exc)
+                    inputs = None
+                _RANKING_STATE.clear()
+                _RANKING_STATE.update(key=key, inputs=inputs)
+            return _RANKING_STATE["inputs"]
+
+    def _batch_note(
+        self,
+        context: dict[str, Any],
+        inputs: AnnotationInputs,
+        units: list[dict[str, Any]],
+        destination: str,
+        travel_hours: float,
+        settings: dict[str, Any],
+    ) -> BatchAnnotation | None:
+        """The annotation of one batch, cached with the inputs; None if it cannot be computed."""
+        allowance = context["config"].arrival_allowance_hours
+        min_days = settings["remaining_life_min_days"]["RBC"]
+        key = (tuple(u["unit_id"] for u in units), destination, travel_hours, allowance, min_days)
+        notes = inputs.notes  # bound to the inputs that produced them, never to a newer snapshot
+        if key in notes:
+            return notes[key]
+        source, group = units[0]["facility_id"], units[0]["blood_group"]
+        try:
+            note = annotate_batch(
+                pd.DataFrame(units, columns=BATCH_COLUMNS),
+                destination,
+                inputs.stock,
+                inputs.demand,
+                inputs.origin,
+                travel_hours,
+                inputs.routine_run_days(source, destination),
+                RANKING_CONFIG,
+                arrival_allowance_hours=allowance,
+                min_remaining_days=min_days,
+                scored=inputs.site_scores(RANKING_CONFIG, source, destination, group),
+            )
+        except Exception as exc:  # any failure means "no score", never a crash
+            LOGGER.info("no survival score for %s: %s", key[0], exc)
+            note = None
+        notes[key] = note
+        return note
+
+    def _annotate(
+        self,
+        context: dict[str, Any],
+        suggestion: Suggestion,
+        units: list[dict[str, Any]],
+        destination: str,
+        route: tuple[float | None, str | None],
+        settings: dict[str, Any],
+    ) -> Suggestion:
+        """Fill expected_use_*, survival_score_* and the recommended send_by from ranking.annotate.
+
+        Eligibility has already decided that this move may be suggested; the score never adds,
+        drops or reorders suggestions. If the score cannot be computed for this batch (no demand
+        model for the sender, no unit history, missing route time), or its result is not a valid
+        Suggestion, expected_use_* and survival_score_* stay empty instead of guessed and the card
+        is the provider's, including its send_by: the latest safe dispatch date of the eligibility
+        rule (DG-17), which is not a model estimate.
+        """
+        unscored = suggestion
+        inputs = self._ranking_inputs(context)
+        if inputs is None or route[0] is None:
+            return unscored
+        note = self._batch_note(context, inputs, units, destination, float(route[0]), settings)
+        if note is None:
+            return unscored
+        try:
+            update = note.as_suggestion_update(suggestion.warnings)
+            if not all(math.isfinite(update[key]) for key in ANNOTATED_NUMBERS):
+                return unscored
+            # The provider's send_by is the latest safe dispatch date (DG-17, eligibility rule).
+            # The recommended day never passes it; with no recommended day (the gain does not
+            # cover a trip), the deadline is kept.
+            deadline = suggestion.send_by
+            reason = update["reason_deterministic"]
+            if update["send_by"] is None:
+                update["send_by"] = deadline
+            elif deadline is not None and update["send_by"] > deadline:
+                update["send_by"] = deadline
+                reason += (
+                    f" Dispatch is brought forward to {deadline.isoformat()}, the latest safe day."
+                )
+            update["uncertainty"] = Uncertainty(**update["uncertainty"])
+            update["reason_deterministic"] = f"{suggestion.reason_deterministic} {reason}"
+            return Suggestion.model_validate({**suggestion.model_dump(), **update})
+        except Exception as exc:  # any failure means "no score", never a crash
+            LOGGER.info("survival fields rejected for %s: %s", suggestion.suggestion_id, exc)
+            return unscored
+
+
+def clear_ranking_cache() -> None:
+    """Forget the cached survival-score inputs and annotations (tests, or a forced reload)."""
+    with _RANKING_LOCK:
+        _RANKING_STATE.clear()
 
 
 def _send_by_date(
