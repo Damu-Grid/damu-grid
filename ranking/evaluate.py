@@ -202,6 +202,23 @@ def reliability(test: pd.DataFrame, min_bin: int) -> dict[str, list[dict]]:
     }
 
 
+def product_preference(units: pd.DataFrame, hospitals: set[str]) -> dict:
+    """How many hospitals transfused more whole blood than red cells over the whole year.
+
+    Evidence for the limit of the pooled queue: the dataset serves each hospital's preferred
+    product first, not strictly the oldest unit.
+    """
+    used = units[
+        units["status"].eq("transfused")
+        & units["component"].isin(["RBC", "WB"])
+        & units["current_facility_id"].isin(hospitals)
+    ]
+    counts = used.groupby(["current_facility_id", "component"]).size().unstack(fill_value=0)
+    counts = counts.reindex(columns=["RBC", "WB"], fill_value=0)
+    share = counts["WB"] / counts.sum(axis=1)
+    return {"hospitals": int(len(counts)), "whole_blood_first": int((share > 0.5).sum())}
+
+
 def group_families(test: pd.DataFrame) -> list[dict]:
     """Mean announced score, observed rate and AUC by blood-group family (test window)."""
     families = np.where(
@@ -442,6 +459,7 @@ def evaluate(config: RankingConfig) -> dict:
         "methods": method_table(calibration, test),
         "reliability_exact_test": reliability(test, config.calibration_min_bin),
         "blood_group_families_test": group_families(test),
+        "product_preference": product_preference(tables["units"], hospitals),
         **closing_sections(tables, requests, config),
     }
 
@@ -514,6 +532,13 @@ def render_markdown(payload: dict) -> str:
                 f"| {_fmt(r['p_low'])} to {_fmt(r['p_high'])} | {r['n']:,} | "
                 f"{_fmt(r['announced'])} | {_fmt(r['observed'])} | {_fmt(r['gap'])} |"
             )
+    preference = payload["product_preference"]
+    lines += [
+        "",
+        f"Product used first: {preference['whole_blood_first']} of {preference['hospitals']} "
+        "hospitals transfused more whole blood than red cells over the year (the pooled "
+        "queue assumes oldest-first across both products).",
+    ]
     lines += ["", "## By blood-group family, test window", ""]
     lines += ["| Family | n | Mean score | Observed | AUC |", "|---|---:|---:|---:|---:|"]
     for r in payload["blood_group_families_test"]:

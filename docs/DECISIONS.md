@@ -58,6 +58,13 @@ Record decisions as they are taken. Date in EAT. A later official organiser mess
 - **Decision:** Declare every AI coding tool actually used, in the README section, before submission. Do not hide agent use.
 - **Consequences:** Update the README during the window, not after the form is sent, as a living list.
 
+## ADR-010 — Survival score: exact oldest-first queue, shown raw with its reliability table
+
+- **Status:** Accepted (DG-19).
+- **Context:** The provider ranks eligible units by expiry and leaves `survival_score_*`, `expected_use_*` and `send_by` empty. A rank rule (demand over the unit's life covers its rank) is a pessimistic bound, and an isotonic recalibration fitted on May–June did not carry over to July–October (the base rate moved). The team decided that red cells and whole blood form one queue.
+- **Decision:** `ranking/` is an annotation layer, not a second provider. The score is the exact use probability of an oldest-first queue under compound Poisson demand (`ranking/queue.py`), learned only from requests before the origin. It is shown raw, with the reliability table of `python -m ranking.evaluate`, and is never recalibrated in the live queue. The pooled RBC + WB queue is the default (`RankingConfig.pool_components`), and results are always reported per `product_type`. The dispatch day nets the gain of waiting against a trip cost (`trip_cost_units`, a team setting, not data), and never passes the latest feasible day of `simulation/compare.py`.
+- **Consequences:** Red cells are ranked well and conservatively. Whole blood in the pooled queue is badly scored, because the dataset serves each hospital's preferred product first (`docs/RANKING.md`). The score never decides: it only orders moves the pipeline eligibility already allowed, and the coordinator still accepts, changes or rejects. Connecting `annotate_batch` to `backend/app/ranking.py` is left to the provider's owner; the patch is in `docs/RANKING.md`.
+
 ## Proposed, not yet decided
 
 - **ADR-009 proposal — expanded risk-ranking path:** retain the accepted Tier 1 pooled-demand queue and nearest fallback as the demo base. Review the pre-window winning hypothesis through `docs/EXPANDED_SOLUTION_INTEGRATION.md`. Promote a newly written waste-risk classifier or broader balancing policy only after the frozen in-window comparison and safety gates in that brief pass. The team must record acceptance, rejection or deferral at check-in; pre-window AUC and savings figures are not submission evidence.

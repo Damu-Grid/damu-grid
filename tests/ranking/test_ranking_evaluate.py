@@ -175,3 +175,11 @@ def test_closing_plan_moves_only_eligible_red_cells_and_matches_its_monte_carlo_
         assert set(batch["products"]) == {"RBC"}  # only the queue component is ever moved
         assert batch["net_gain"] >= RankingConfig().min_gain_units
         assert abs(batch["model_gain"] - batch["monte_carlo_gain"]) < 0.1
+
+
+@pytest.mark.dataset
+def test_product_preference_is_reported(pooled_run):
+    preference = pooled_run["product_preference"]
+    assert preference["hospitals"] == 32
+    assert 0 < preference["whole_blood_first"] < preference["hospitals"]
+    assert "Product used first" in render_markdown(pooled_run)
