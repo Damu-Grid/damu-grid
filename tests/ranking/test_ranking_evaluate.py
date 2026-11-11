@@ -99,8 +99,9 @@ def test_rank_rule_matches_the_queue_bound_and_skips_unqueued_rows():
             "expiry_date": pd.to_datetime(["2026-02-10", "2026-02-20", "2026-02-20"]),
         }
     )
-    scored = survival_scores(stock, demand, origin, RankingConfig(), with_interval=False)
-    bound = rank_rule(scored, demand)
+    pooled = RankingConfig(issue_model="pooled")
+    scored = survival_scores(stock, demand, origin, pooled, with_interval=False)
+    bound = rank_rule(scored, demand, pooled)
     assert bound.iloc[:2].notna().all() and np.isnan(bound.iloc[2])
     assert (bound.iloc[:2] <= scored["p"].iloc[:2] + 1e-12).all()
     assert scored[["p_lo", "p_hi"]].isna().all().all()  # intervals skipped on request
@@ -183,3 +184,11 @@ def test_product_preference_is_reported(pooled_run):
     assert preference["hospitals"] == 32
     assert 0 < preference["whole_blood_first"] < preference["hospitals"]
     assert "Product used first" in render_markdown(pooled_run)
+
+
+@pytest.mark.dataset
+def test_units_left_out_of_the_history_expire_before_the_first_origin(pooled_run):
+    missing = pooled_run["units_without_arrival"]
+    assert missing["units"] > 0
+    assert date.fromisoformat(missing["latest_expiry"]) < calibration_origins()[0]
+    assert pooled_run["config"]["issue_model"] == "by_product"

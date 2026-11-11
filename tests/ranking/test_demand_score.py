@@ -168,7 +168,7 @@ def test_pooled_queue_keeps_product_type_and_orders_by_expiry(model):
             ("U2", "HSP-A", "O+", "RBC", day + pd.Timedelta(days=9)),
         ]
     )
-    out = survival_scores(stock, model, ORIGIN, RankingConfig())
+    out = survival_scores(stock, model, ORIGIN, RankingConfig(issue_model="pooled"))
     assert out["unit_id"].tolist() == ["U3", "U1", "U2"]  # row order of the input kept
     assert out["product_type"].tolist() == ["RBC", "WB", "RBC"]
     assert out["rank"].tolist() == [3, 1, 2]
@@ -187,7 +187,7 @@ def test_whole_blood_occupies_a_place_only_when_it_is_in_the_pool(model):
             ("RB1", "HSP-A", "O+", "RBC", day + pd.Timedelta(days=15)),
         ]
     )
-    pooled = survival_scores(stock, model, ORIGIN, RankingConfig())
+    pooled = survival_scores(stock, model, ORIGIN, RankingConfig(issue_model="pooled"))
     red_only = survival_scores(stock, model, ORIGIN, RankingConfig(pool_components=("RBC",)))
     assert pooled["p"].notna().all()
     assert np.isnan(red_only.loc[0, "p"]) and red_only.loc[0, "product_type"] == "WB"
@@ -204,8 +204,8 @@ def test_queues_are_separate_per_site_and_blood_group(model):
             ("C", "HSP-B", "O+", "RBC", day + pd.Timedelta(days=3)),
         ]
     )
-    alone = survival_scores(one, model, ORIGIN, RankingConfig())
-    together = survival_scores(many, model, ORIGIN, RankingConfig())
+    alone = survival_scores(one, model, ORIGIN, RankingConfig(issue_model="pooled"))
+    together = survival_scores(many, model, ORIGIN, RankingConfig(issue_model="pooled"))
     assert together.loc[0, "p"] == pytest.approx(alone.loc[0, "p"], abs=1e-15)
     assert together.loc[0, "rank"] == 1
 
@@ -221,7 +221,9 @@ def test_units_that_cannot_be_scored_stay_nan_and_expired_units_score_zero(model
             ("OK", "HSP-A", "O+", "RBC", day + pd.Timedelta(days=3)),
         ]
     )
-    out = survival_scores(stock, model, ORIGIN, RankingConfig()).set_index("unit_id")
+    out = survival_scores(stock, model, ORIGIN, RankingConfig(issue_model="pooled")).set_index(
+        "unit_id"
+    )
     assert out.loc[["PLT1", "NOG", "CTR"], "p"].isna().all()
     assert out.loc["OLD", "p"] == 0.0 and np.isnan(out.loc["OLD", "rank"])
     assert out.loc["OK", "rank"] == 1 and out.loc["OK", "p"] > 0.0
@@ -234,7 +236,63 @@ def test_scores_use_only_the_demand_model(requests_table):
     altered = requests_table.copy()
     altered.loc[future, "units_requested"] = 6
     a = survival_scores(stock, DemandModel.from_history(requests_table, FACILITIES, ORIGIN), ORIGIN,
-                        RankingConfig())  # fmt: skip
+                        RankingConfig(issue_model="pooled"))  # fmt: skip
     b = survival_scores(stock, DemandModel.from_history(altered, FACILITIES, ORIGIN), ORIGIN,
-                        RankingConfig())  # fmt: skip
+                        RankingConfig(issue_model="pooled"))  # fmt: skip
     assert a.loc[0, "p"] == b.loc[0, "p"]
+
+
+def _units_history(origin: date) -> pd.DataFrame:
+    """Transfused units at HSP-A: 6 red cells and 2 whole blood before the origin, more after."""
+    before, after = pd.Timestamp(origin) - pd.Timedelta(days=3), pd.Timestamp(origin)
+    rows = [("HSP-A", "RBC", before)] * 6 + [("HSP-A", "WB", before)] * 2
+    rows += [("HSP-A", "WB", after)] * 50 + [("HSP-A", "RBC", before - pd.Timedelta(days=1))]
+    frame = pd.DataFrame(rows, columns=["current_facility_id", "component", "status_date"])
+    frame["status"] = "transfused"
+    frame.loc[len(frame)] = ["HSP-A", "WB", before, "expired"]  # not a transfusion
+    return frame
+
+
+def test_product_shares_come_only_from_units_transfused_before_the_origin(requests_table):
+    units = _units_history(ORIGIN)
+    model = DemandModel.from_history(requests_table, FACILITIES, ORIGIN, units=units)
+    assert model.transfused_counts == {("HSP-A", "RBC"): 7, ("HSP-A", "WB"): 2}
+    assert model.product_share("HSP-A", "RBC", ("RBC", "WB")) == pytest.approx(8 / 11)
+    assert model.product_share("HSP-A", "WB", ("RBC", "WB")) == pytest.approx(3 / 11)
+    assert model.product_share("HSP-B", "WB", ("RBC", "WB")) == pytest.approx(0.5)  # none seen
+    assert model.product_share("HSP-A", "RBC", ("RBC",)) == 1.0
+
+
+def test_product_shares_are_never_guessed_without_unit_history(model):
+    with pytest.raises(ValueError):
+        model.product_share("HSP-A", "WB", ("RBC", "WB"))
+    assert model.product_share("HSP-A", "RBC", ("RBC",)) == 1.0
+    with pytest.raises(ValueError):
+        model.product_share("HSP-A", "PLT", ("RBC", "WB"))
+
+
+def test_each_product_has_its_own_queue_and_share_of_demand(requests_table):
+    units = _units_history(ORIGIN)
+    split = DemandModel.from_history(requests_table, FACILITIES, ORIGIN, units=units)
+    day = pd.Timestamp(ORIGIN)
+    stock = _stock(
+        [
+            ("WB1", "HSP-A", "O+", "WB", day + pd.Timedelta(days=2)),
+            ("RB1", "HSP-A", "O+", "RBC", day + pd.Timedelta(days=15)),
+        ]
+    )
+    out = survival_scores(stock, split, ORIGIN, RankingConfig()).set_index("unit_id")
+    assert out.loc["WB1", "rank"] == 1 and out.loc["RB1", "rank"] == 1  # separate queues
+    red = split.request_rates("HSP-A", "O+", 16) * split.product_share(
+        "HSP-A", "RBC", ("RBC", "WB")
+    )
+    assert out.loc["RB1", "p"] == pytest.approx(
+        fefo_use_probabilities([16], red, split.size_pmf)[0]
+    )
+    with pytest.raises(ValueError):  # by-product scoring without a unit history is refused
+        survival_scores(
+            stock,
+            DemandModel.from_history(requests_table, FACILITIES, ORIGIN),
+            ORIGIN,
+            RankingConfig(),
+        )

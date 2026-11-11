@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -21,7 +21,7 @@ from ranking.config import RankingConfig
 from ranking.demand import DemandModel
 from ranking.gain import aged_positions, arrival_lag_days, gain_by_day, max_wait_days
 from ranking.queue import fefo_use_probabilities
-from ranking.score import survival_scores
+from ranking.score import queue_product, queue_rates, survival_scores
 from ranking.timing import decide_dispatch, routine_run_weekdays
 from simulation.compare import SEND_BY_BUFFER_DAYS, transit_days
 
@@ -78,6 +78,25 @@ class AnnotationInputs:
     stock: pd.DataFrame  # every unit on every shelf, eligible or not
     demand: DemandModel
     facilities: pd.DataFrame
+    _scores: dict = field(default_factory=dict, compare=False, repr=False)
+
+    def scores(self, config: RankingConfig) -> pd.DataFrame:
+        """survival_scores of the whole stock for `config`, computed once and reused."""
+        if config not in self._scores:
+            self._scores[config] = survival_scores(self.stock, self.demand, self.origin, config)
+        return self._scores[config]
+
+    def site_scores(
+        self, config: RankingConfig, sender: str, destination: str, group: str
+    ) -> pd.DataFrame:
+        """The rows of `scores` for one blood group at two sites, from a per-site index."""
+        key = ("by_site", config)
+        if key not in self._scores:
+            scored = self.scores(config)
+            self._scores[key] = {k: g for k, g in scored.groupby(["facility_id", "blood_group"])}
+        index = self._scores[key]
+        parts = [index[k] for k in ((sender, group), (destination, group)) if k in index]
+        return pd.concat(parts) if parts else self.scores(config).iloc[0:0]
 
     def routine_run_days(self, from_id: str, to_id: str) -> frozenset[int]:
         """Weekdays of a routine vehicle from `from_id` to `to_id` (none for a lateral move)."""
@@ -87,10 +106,12 @@ class AnnotationInputs:
 def load_annotation_inputs(
     database_path: Path, as_of: datetime, config: RankingConfig
 ) -> AnnotationInputs:
-    """Read dg_snapshot_units, requests and facilities from damu_grid.sqlite (read-only).
+    """Read dg_snapshot_units, requests, units and facilities from damu_grid.sqlite (read-only).
 
     The snapshot rows are those of `as_of` (ISO 8601 with offset, as the pipeline stores it).
-    Demand is learned from requests strictly before the first day after the snapshot.
+    Demand is learned from requests strictly before the first day after the snapshot, and the
+    product shares from the units transfused before it. A missing table or column raises (the
+    caller then leaves the survival fields empty).
     """
     uri = f"{Path(database_path).resolve().as_uri()}?mode=ro"
     with sqlite3.connect(uri, uri=True) as connection:
@@ -105,6 +126,10 @@ def load_annotation_inputs(
             "units_requested FROM requests",
             connection,
         )
+        units = pd.read_sql_query(
+            "SELECT unit_id, component, current_facility_id, status, status_date FROM units",
+            connection,
+        )
         facilities = pd.read_sql_query(
             "SELECT facility_id, facility_type, supply_centre_id, routine_deliveries_per_week "
             "FROM facilities",
@@ -117,7 +142,7 @@ def load_annotation_inputs(
     requests["units_requested"] = pd.to_numeric(requests["units_requested"]).astype(int)
     origin = as_of.date() + timedelta(days=1)
     demand = DemandModel.from_history(
-        requests, facilities, origin, weekday_profile=config.weekday_profile
+        requests, facilities, origin, weekday_profile=config.weekday_profile, units=units
     )
     return AnnotationInputs(origin, stock, demand, facilities)
 
@@ -173,6 +198,7 @@ def annotate_batch(
     *,
     arrival_allowance_hours: float = 6.0,
     min_remaining_days: int = 7,
+    scored: pd.DataFrame | None = None,
 ) -> BatchAnnotation:
     """Score a batch at the sender and at the destination and choose the dispatch day.
 
@@ -181,36 +207,54 @@ def annotate_batch(
     from ranking.timing.decide_dispatch and is never later than the latest feasible day
     (expiry minus travel minus the buffer the backend already applies). The scores "if moved"
     are for a dispatch today; the dispatch day itself comes from the gain curve G(tau).
+    `scored` may hold survival_scores of `stock` already computed with the same demand, origin
+    and config (AnnotationInputs.scores), so a request annotating many batches scores once.
     """
     if units.empty:
         raise ValueError("a batch needs at least one unit")
-    sender = str(units["facility_id"].iloc[0])
-    group = str(units["blood_group"].iloc[0])
-    if units["facility_id"].nunique() != 1 or units["blood_group"].nunique() != 1:
+    unit_ids = [str(u) for u in units["unit_id"]]
+    sites, groups = set(units["facility_id"]), set(units["blood_group"])
+    if len(sites) != 1 or len(groups) != 1:
         raise ValueError("a batch comes from one site and has one blood group")
+    sender, group = str(sites.pop()), str(groups.pop())
+    components = set(units["component"])
+    if config.issue_model == "by_product" and len(components) != 1:
+        raise ValueError("a batch holds one product when each product has its own queue")
+    product = queue_product(str(next(iter(components))), config)
     if sender == destination:
         raise ValueError("the destination must differ from the sender")
 
-    shelves = pd.concat([stock[STOCK_COLUMNS], units[STOCK_COLUMNS]]).drop_duplicates("unit_id")
-    shelves = shelves[
-        shelves["facility_id"].isin([sender, destination]) & (shelves["blood_group"] == group)
-    ]
-    scored = survival_scores(shelves, demand, origin, config).set_index("unit_id")
-    batch = scored.loc[list(units["unit_id"])]
-    if batch["p"].isna().any():
+    if scored is None or not set(unit_ids) <= set(scored["unit_id"]):
+        shelves = pd.concat([stock[STOCK_COLUMNS], units[STOCK_COLUMNS]])
+        shelves = shelves.drop_duplicates("unit_id")
+        shelves = shelves[
+            shelves["facility_id"].isin([sender, destination]) & (shelves["blood_group"] == group)
+        ]
+        scored = survival_scores(shelves, demand, origin, config)
+    # plain arrays from here on: this runs once per suggestion card
+    ids = scored["unit_id"].to_numpy()
+    site = scored["facility_id"].to_numpy()
+    rows = (scored["blood_group"].to_numpy() == group) & np.isin(site, [sender, destination])
+    position = {u: i for i, u in enumerate(ids) if rows[i]}
+    batch_rows = [position[u] for u in unit_ids if u in position]
+    p_all = scored["p"].to_numpy(dtype=float)
+    if len(batch_rows) != len(unit_ids) or np.isnan(p_all[batch_rows]).any():
         raise ValueError("every unit of the batch must be a scorable product of the pool")
-    n = len(batch)
-    stays, stays_lo, stays_hi = (float(batch[c].sum()) for c in ("p", "p_lo", "p_hi"))
-
-    queued = scored[scored["rank"].notna()]
-    sender_left = queued.loc[queued["facility_id"] == sender, "days_left"].to_numpy(dtype=int)
-    dest_left = np.sort(
-        queued.loc[queued["facility_id"] == destination, "days_left"].to_numpy(dtype=int)
+    n = len(batch_rows)
+    stays, stays_lo, stays_hi = (
+        float(scored[c].to_numpy(dtype=float)[batch_rows].sum()) for c in ("p", "p_lo", "p_hi")
     )
-    batch_left = batch["days_left"].to_numpy(dtype=int)
+
+    days = scored["days_left"].to_numpy(dtype=int)
+    queued = rows & ~np.isnan(scored["rank"].to_numpy(dtype=float))
+    if product is not None:
+        queued &= scored["component"].to_numpy() == product
+    sender_left = days[queued & (site == sender)]
+    dest_left = np.sort(days[queued & (site == destination)])
+    batch_left = days[batch_rows]
     horizon = int(max(sender_left.max(initial=1), dest_left.max(initial=1)))
-    s_rates = demand.request_rates(sender, group, horizon)
-    d_rates = demand.request_rates(destination, group, horizon)
+    s_rates = queue_rates(demand, sender, group, product, horizon, config)
+    d_rates = queue_rates(demand, destination, group, product, horizon, config)
     lag = arrival_lag_days(travel_hours, arrival_allowance_hours)
     factors = demand.rate_interval_factors(destination, group, config.lambda_quantiles)
     moved_p, moved_lo, moved_hi = _scores_at_destination(

@@ -41,7 +41,7 @@ from ranking.config import RankingConfig
 from ranking.demand import DemandModel
 from ranking.gain import arrival_lag_days, plan_batches
 from ranking.queue import rank_lower_bound
-from ranking.score import survival_scores
+from ranking.score import queue_product, queue_rates, survival_scores
 from ranking.simulate import simulate_transfer_gain
 
 END = pd.Timestamp("2026-10-31")  # last day of the data: outcomes are final up to here
@@ -105,14 +105,15 @@ def shelf_at(pool: pd.DataFrame, origin: date) -> pd.DataFrame:
     ]
 
 
-def rank_rule(scored: pd.DataFrame, demand: DemandModel) -> pd.Series:
+def rank_rule(scored: pd.DataFrame, demand: DemandModel, config: RankingConfig) -> pd.Series:
     """The rank-rule score of every queued unit of `scored` (NaN for the others)."""
     out = pd.Series(np.nan, index=scored.index)
     queued = scored.dropna(subset=["rank"])
-    for (site, group), queue in queued.groupby(["facility_id", "blood_group"]):
+    product = queued["component"].map(lambda c: queue_product(c, config) or "")
+    for (site, group, kept), queue in queued.groupby(["facility_id", "blood_group", product]):
         queue = queue.sort_values("rank")
         left = queue["days_left"].to_numpy(dtype=int)
-        rates = demand.request_rates(site, group, int(left.max()))
+        rates = queue_rates(demand, site, group, kept or None, int(left.max()), config)
         out.loc[queue.index] = rank_lower_bound(left, rates, demand.size_pmf)
     return out
 
@@ -123,21 +124,22 @@ def score_origins(
     requests: pd.DataFrame,
     facilities: pd.DataFrame,
     config: RankingConfig,
+    units: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Score every unit on a shelf at each origin and attach its final outcome.
 
     Only units whose outcome is final are returned (transfused, or expired on or before the
     last day of the data): column y is 1 if the unit was transfused. Demand is learned from the
-    requests strictly before each origin.
+    requests (and, for the product shares, the units transfused) strictly before each origin.
     """
     parts = []
     for origin in origins:
         demand = DemandModel.from_history(
-            requests, facilities, origin, weekday_profile=config.weekday_profile
+            requests, facilities, origin, weekday_profile=config.weekday_profile, units=units
         )
         stock = shelf_at(pool, origin)
         scored = survival_scores(stock, demand, origin, config, with_interval=False)
-        scored["p_rank"] = rank_rule(scored, demand)
+        scored["p_rank"] = rank_rule(scored, demand, config)
         scored["origin"] = pd.Timestamp(origin)
         parts.append(scored)
     result = pd.concat(parts, ignore_index=True)
@@ -199,6 +201,27 @@ def reliability(test: pd.DataFrame, min_bin: int) -> dict[str, list[dict]]:
             "records"
         )
         for name, part in _subsets(test).items()
+    }
+
+
+def units_without_arrival(
+    units: pd.DataFrame, transfers: pd.DataFrame, hospitals: set[str], components: Sequence[str]
+) -> dict:
+    """Hospital units of the pool that never moved, so the historical shelves leave them out.
+
+    Reported with their latest expiry: if it is before the first origin, the queues of every
+    evaluated origin are complete.
+    """
+    pool = units[
+        units["component"].isin(components)
+        & units["blood_group"].notna()
+        & units["current_facility_id"].isin(hospitals)
+        & ~units["unit_id"].isin(transfers["unit_id"])
+    ]
+    latest = pool["expiry_date"].max()
+    return {
+        "units": len(pool),
+        "latest_expiry": None if pd.isna(latest) else pd.Timestamp(latest).date().isoformat(),
     }
 
 
@@ -332,7 +355,10 @@ def _batch_check(
     src, dst, group = batch.iloc[0][["from_facility_id", "to_facility_id", "blood_group"]]
     mine = set(batch["unit_id"])
     others = set(plan["unit_id"]) - mine
+    product = queue_product(str(batch.iloc[0]["component"]), config)
     same_group = pooled["blood_group"] == group
+    if product is not None:
+        same_group &= pooled["component"] == product
     at_sender = pooled[
         same_group & (pooled["facility_id"] == src) & ~pooled["unit_id"].isin(others)
     ]
@@ -346,8 +372,8 @@ def _batch_check(
         at_sender["days_left"].to_numpy(),
         list(at_dest["days_left"]) + list(arriving["days_left"]),
         list(np.flatnonzero(at_sender["unit_id"].isin(mine).to_numpy())),
-        demand.request_rates(src, group, horizon),
-        demand.request_rates(dst, group, horizon),
+        queue_rates(demand, src, group, product, horizon, config),
+        queue_rates(demand, dst, group, product, horizon, config),
         demand.size_pmf,
         dispatch_day=tau,
         arrival_lag=lag,
@@ -445,8 +471,8 @@ def evaluate(config: RankingConfig) -> dict:
     hospitals = _hospitals(facilities)
     pool = arrived_units(tables["units"], tables["transfers"], hospitals, config.pool_components)
     cal_origins, test_origins = calibration_origins(), evaluation_origins()
-    calibration = score_origins(cal_origins, pool, requests, facilities, config)
-    test = score_origins(test_origins, pool, requests, facilities, config)
+    calibration = score_origins(cal_origins, pool, requests, facilities, config, tables["units"])
+    test = score_origins(test_origins, pool, requests, facilities, config, tables["units"])
     return {
         "config": asdict(config),
         "split": {
@@ -460,6 +486,9 @@ def evaluate(config: RankingConfig) -> dict:
         "reliability_exact_test": reliability(test, config.calibration_min_bin),
         "blood_group_families_test": group_families(test),
         "product_preference": product_preference(tables["units"], hospitals),
+        "units_without_arrival": units_without_arrival(
+            tables["units"], tables["transfers"], hospitals, config.pool_components
+        ),
         **closing_sections(tables, requests, config),
     }
 
@@ -472,7 +501,11 @@ def closing_sections(
     snapshot = build_snapshot(tables, pipeline_config)
     origin = snapshot.as_of.date() + timedelta(days=1)
     demand = DemandModel.from_history(
-        requests, tables["facilities"], origin, weekday_profile=config.weekday_profile
+        requests,
+        tables["facilities"],
+        origin,
+        weekday_profile=config.weekday_profile,
+        units=tables["units"],
     )
     return {
         "closing_stock": closing_stock(snapshot, tables["facilities"], demand, config),
@@ -491,13 +524,17 @@ def render_markdown(payload: dict) -> str:
     lines = [
         "# Survival-score evaluation (synthetic data)",
         "",
-        f"Pool of products in one queue: {', '.join(config['pool_components'])}. "
+        f"Products scored: {', '.join(config['pool_components'])}; issue model "
+        f"{config['issue_model']}. "
         f"Weekday profile: {'on' if config['weekday_profile'] else 'off'}.",
         f"Calibration origins: {split['calibration_origins'][0]} to "
         f"{split['calibration_origins'][1]} ({split['calibration_origin_count']} weekly). "
         f"Test origins: {split['test_origins'][0]} to {split['test_origins'][1]} "
         f"({split['test_origin_count']} weekly). Units are scored only when their outcome is "
-        f"final (expiry on or before {split['outcomes_final_through']}).",
+        f"final (expiry on or before {split['outcomes_final_through']}). Hospital units with no "
+        f"recorded arrival, left out of the historical shelves: "
+        f"{payload['units_without_arrival']['units']:,} (latest expiry "
+        f"{payload['units_without_arrival']['latest_expiry']}).",
         "",
         "The score is a model estimate under stated assumptions, not a clinical probability. It "
         "is evidence as a ranking and the table below shows where it is off; do not read an "
@@ -536,8 +573,8 @@ def render_markdown(payload: dict) -> str:
     lines += [
         "",
         f"Product used first: {preference['whole_blood_first']} of {preference['hospitals']} "
-        "hospitals transfused more whole blood than red cells over the year (the pooled "
-        "queue assumes oldest-first across both products).",
+        "hospitals transfused more whole blood than red cells over the year, so each product "
+        "gets its own queue and share of demand by default (issue_model by_product).",
     ]
     lines += ["", "## By blood-group family, test window", ""]
     lines += ["| Family | n | Mean score | Observed | AUC |", "|---|---:|---:|---:|---:|"]
@@ -599,6 +636,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="products sharing one queue, comma separated (default RBC,WB)",
     )
     parser.add_argument(
+        "--issue-model",
+        choices=("by_product", "pooled"),
+        default=RankingConfig().issue_model,
+        help="one queue per product with its share of demand, or one pooled queue",
+    )
+    parser.add_argument(
         "--flat-weekdays", action="store_true", help="ignore the weekday demand profile"
     )
     parser.add_argument(
@@ -611,6 +654,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = RankingConfig(
         pool_components=tuple(c.strip() for c in args.pool_components.split(",") if c.strip()),
         weekday_profile=not args.flat_weekdays,
+        issue_model=args.issue_model,
     )
     payload = evaluate(config)
     report = render_markdown(payload)

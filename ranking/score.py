@@ -14,6 +14,27 @@ from ranking.queue import fefo_use_probabilities
 SCORE_COLUMNS = ["product_type", "days_left", "rank", "p", "p_lo", "p_hi"]
 
 
+def queue_product(product: str, config: RankingConfig) -> str | None:
+    """The product a queue is kept for: None when all pooled products share one queue."""
+    return product if config.issue_model == "by_product" else None
+
+
+def queue_rates(
+    demand: DemandModel,
+    site: str,
+    group: str,
+    product: str | None,
+    days: int,
+    config: RankingConfig,
+) -> np.ndarray:
+    """Expected requests per day reaching one queue: the whole (site, group) demand for a pooled
+    queue, the product's share of it for a by-product queue (DemandModel.product_share)."""
+    rates = demand.request_rates(site, group, days)
+    if product is None:
+        return rates
+    return rates * demand.product_share(site, product, config.pool_components)
+
+
 def survival_scores(
     stock: pd.DataFrame,
     demand: DemandModel,
@@ -26,7 +47,8 @@ def survival_scores(
 
     `stock` has unit_id, facility_id, blood_group, component (the product_type, RBC or WB) and
     expiry_date (the snapshot units of pipeline.snapshot). One queue per (facility_id,
-    blood_group) holding the products of config.pool_components ordered by expiry; the queue holds
+    blood_group) holding the products of config.pool_components ordered by expiry (one queue per
+    product with config.issue_model = "by_product", see queue_rates); the queue holds
     every unit on the shelf, eligible or not, because an excluded unit still occupies a place. The
     product_type column is kept on every row so results can be reported per product. p_lo and p_hi
     are the score at the config.lambda_quantiles of the demand rate.
@@ -48,8 +70,10 @@ def survival_scores(
     pooled = result["component"].isin(config.pool_components) & result["blood_group"].notna()
     sites = {site for site in result.loc[pooled, "facility_id"].unique() if demand.has_site(site)}
     scorable = result[pooled & result["facility_id"].isin(sites)].assign(_expiry=expiry)
-    for (site, group), queue in scorable.groupby(["facility_id", "blood_group"], sort=False):
-        _score_queue(result, queue, demand, site, group, config, with_interval)
+    product = scorable["component"].map(lambda c: queue_product(c, config) or "")
+    keys = [scorable["facility_id"], scorable["blood_group"], product]
+    for (site, group, kept), queue in scorable.groupby(keys, sort=False):
+        _score_queue(result, queue, demand, site, group, kept or None, config, with_interval)
     return result[list(stock.columns) + [c for c in SCORE_COLUMNS if c not in stock.columns]]
 
 
@@ -59,17 +83,18 @@ def _score_queue(
     demand: DemandModel,
     site: str,
     group: str,
+    product: str | None,
     config: RankingConfig,
     with_interval: bool,
 ) -> None:
-    """Fill rank, p, p_lo and p_hi of one (site, group) queue inside `result`."""
+    """Fill rank, p, p_lo and p_hi of one queue (site, group, and product if split)."""
     expired = queue["days_left"] < 1
     result.loc[queue.index[expired], ["p", "p_lo", "p_hi"]] = 0.0
     live = queue[~expired].sort_values(["_expiry", "unit_id"], kind="stable")
     if live.empty:
         return
     left = live["days_left"].to_numpy(dtype=int)
-    rates = demand.request_rates(site, group, int(left.max()))
+    rates = queue_rates(demand, site, group, product, int(left.max()), config)
     pmf = demand.size_pmf
     result.loc[live.index, "rank"] = np.arange(1, len(live) + 1)
     result.loc[live.index, "p"] = fefo_use_probabilities(left, rates, pmf, config.cap_extra)

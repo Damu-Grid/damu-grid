@@ -208,7 +208,8 @@ def _random_network(rng):
                         "typical_travel_hours"],
     )  # fmt: skip
     rates = {(s, g): float(rng.uniform(0.0, 2.0)) for s in sites for g in ("O+", "A+")}
-    demand = DemandModel(MONDAY, rates, {k: 50 for k in rates}, SIZES, (1.0,) * 7)
+    used = {(s, p): int(rng.integers(0, 40)) for s in sites for p in ("RBC", "WB")}
+    demand = DemandModel(MONDAY, rates, {k: 50 for k in rates}, SIZES, (1.0,) * 7, used)
     return stock, eligible, demand
 
 
@@ -253,7 +254,10 @@ def test_plan_moves_a_short_life_unit_to_a_site_with_demand():
             "component": ["RBC", "RBC"], "typical_travel_hours": [2.0, 2.0],
         }
     )  # fmt: skip
-    demand = DemandModel(MONDAY, {("H1", "O+"): 0.05, ("H2", "O+"): 1.5}, {}, SIZES, (1.0,) * 7)
+    used = {("H1", "RBC"): 20, ("H2", "RBC"): 60}
+    demand = DemandModel(
+        MONDAY, {("H1", "O+"): 0.05, ("H2", "O+"): 1.5}, {}, SIZES, (1.0,) * 7, used
+    )
     # the reserve counts eligible units, as pipeline.eligibility.check_move does
     assert plan_batches(eligible, stock, demand, RankingConfig(), sender_reserve_units=2).empty
     plan = plan_batches(eligible, stock, demand, RankingConfig(), sender_reserve_units=0)

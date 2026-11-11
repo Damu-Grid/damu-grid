@@ -16,6 +16,7 @@ import pandas as pd
 from ranking.config import RankingConfig
 from ranking.demand import DemandModel
 from ranking.queue import fefo_use_probabilities
+from ranking.score import queue_product, queue_rates
 from ranking.timing import decide_dispatch
 
 
@@ -168,16 +169,21 @@ def gain_by_day(
     return tuple(gains)
 
 
-def _queues(stock: pd.DataFrame, origin, config: RankingConfig) -> dict[tuple[str, str], list]:
-    """(facility_id, blood_group) -> sorted list of (days_left, unit_id) of the pooled units."""
+def _queues(stock: pd.DataFrame, origin, config: RankingConfig) -> dict[tuple, list]:
+    """(facility_id, blood_group, queue product) -> sorted (days_left, unit_id) of its units.
+
+    The queue product is None when the pooled products share one queue
+    (ranking.score.queue_product), so the queues are those of ranking.score."""
     pooled = stock[stock["component"].isin(config.pool_components) & stock["blood_group"].notna()]
     left = (pd.to_datetime(pooled["expiry_date"]).dt.normalize() - pd.Timestamp(origin)).dt.days + 1
     queues: dict[tuple[str, str], list] = {}
-    for site, group, days, unit in zip(
-        pooled["facility_id"], pooled["blood_group"], left, pooled["unit_id"], strict=True
-    ):
+    for site, group, product, days, unit in zip(
+        pooled["facility_id"], pooled["blood_group"], pooled["component"], left,
+        pooled["unit_id"], strict=True,
+    ):  # fmt: skip
         if days >= 1:
-            queues.setdefault((site, group), []).append((int(days), unit))
+            key = (site, group, queue_product(product, config))
+            queues.setdefault(key, []).append((int(days), unit))
     return {key: sorted(value) for key, value in queues.items()}
 
 
@@ -216,10 +222,10 @@ def plan_batches(
     horizon = max([d for q in queues.values() for d, _ in q] + [1])
     rates: dict[tuple[str, str], np.ndarray] = {}
 
-    def rate(key: tuple[str, str]) -> np.ndarray:
-        """Daily request rates of a (site, group) over the whole horizon, cached."""
+    def rate(key: tuple) -> np.ndarray:
+        """Daily request rates reaching one queue over the whole horizon, cached."""
         if key not in rates:
-            rates[key] = demand.request_rates(key[0], key[1], horizon)
+            rates[key] = queue_rates(demand, key[0], key[1], key[2], horizon, config)
         return rates[key]
 
     moves = eligible_moves.drop_duplicates(["unit_id", "to_facility_id"]).to_dict("records")
@@ -244,8 +250,9 @@ def plan_batches(
         """Gain of moving the unit of move i alone, today, with the current queues."""
         if i not in cache:
             m = moves[i]
-            s_key = (m["from_facility_id"], m["blood_group"])
-            d_key = (m["to_facility_id"], m["blood_group"])
+            product = queue_product(m["component"], config)
+            s_key = (m["from_facility_id"], m["blood_group"], product)
+            d_key = (m["to_facility_id"], m["blood_group"], product)
             cache[i] = gain_by_day(
                 [d for d, _ in queues.get(s_key, [])],
                 [d for d, _ in queues.get(d_key, [])],
@@ -276,9 +283,10 @@ def plan_batches(
         if best is None or best_gain < config.min_gain_units:
             break
         m = moves[best]
+        product = queue_product(m["component"], config)
         s_key, d_key = (
-            (m["from_facility_id"], m["blood_group"]),
-            (m["to_facility_id"], m["blood_group"]),
+            (m["from_facility_id"], m["blood_group"], product),
+            (m["to_facility_id"], m["blood_group"], product),
         )
         entry = (days_of[m["unit_id"]], m["unit_id"])
         queues[s_key].remove(entry)
@@ -291,8 +299,9 @@ def plan_batches(
         touched = {s_key, d_key}
         for i in list(cache):
             other = moves[i]
-            keys = {(other["from_facility_id"], other["blood_group"]),
-                    (other["to_facility_id"], other["blood_group"])}  # fmt: skip
+            other_product = queue_product(other["component"], config)
+            keys = {(other["from_facility_id"], other["blood_group"], other_product),
+                    (other["to_facility_id"], other["blood_group"], other_product)}  # fmt: skip
             if keys & touched:
                 del cache[i]
 
@@ -300,11 +309,13 @@ def plan_batches(
     by_route: dict[tuple[str, str, str], list] = {}
     for m, gain in moved.values():
         by_route.setdefault(
-            (m["from_facility_id"], m["to_facility_id"], m["blood_group"]), []
+            (m["from_facility_id"], m["to_facility_id"], m["blood_group"], m["component"]), []
         ).append((m, gain))
-    for number, ((src, dst, group), members) in enumerate(sorted(by_route.items()), start=1):
+    batches = enumerate(sorted(by_route.items()), start=1)
+    for number, ((src, dst, group, component), members) in batches:
         batch_days = [days_of[m["unit_id"]] for m, _ in members]
-        s_key, d_key = (src, group), (dst, group)
+        product = queue_product(component, config)
+        s_key, d_key = (src, group, product), (dst, group, product)
         sender_before = [d for d, _ in queues.get(s_key, [])] + batch_days
         destination_before = _without([d for d, _ in queues.get(d_key, [])], batch_days)
         lag = lag_of[(src, dst)]

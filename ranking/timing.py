@@ -80,8 +80,9 @@ def decide_dispatch(
     decision_day = days[best]
     if net[best] < config.min_gain_units:
         reason = (
-            f"No suggestion: the best net expected gain is {net[best]:.2f} units "
-            f"({decision_day.isoformat()}), below the {config.min_gain_units:.2f}-unit minimum."
+            f"No send-by day proposed: the best net expected gain is {net[best]:.2f} units "
+            f"({decision_day.isoformat()}), below the {config.min_gain_units:.2f}-unit minimum for "
+            "a transfer."
         )
         return DispatchDecision(
             None, net[best], tuple(gain_by_day), waiting_cost, routine[best], reason

@@ -15,6 +15,7 @@ from ranking.annotate import UNCERTAINTY, annotate_batch, load_annotation_inputs
 from ranking.config import RankingConfig
 from ranking.demand import DemandModel
 from ranking.queue import fefo_use_probabilities
+from ranking.score import queue_rates
 
 ORIGIN = date(2026, 11, 2)  # a Monday
 SIZES = (0.49, 0.28, 0.115, 0.085, 0.0, 0.03)
@@ -47,6 +48,7 @@ DEMAND = DemandModel(
     {("H2", "O+"): 40},
     SIZES,
     (1.0,) * 7,
+    {("H1", "RBC"): 30, ("H1", "WB"): 2, ("H2", "RBC"): 50, ("H2", "WB"): 5},
 )
 
 
@@ -84,9 +86,16 @@ def _suggestion(**update) -> Suggestion:
 
 def test_scores_at_the_sender_come_from_the_complete_pooled_queue():
     note = _annotate()
-    p = fefo_use_probabilities([9, 11, 14, 15, 16], DEMAND.request_rates("H1", "O+", 16), SIZES)
-    assert note.expected_use_if_stays == pytest.approx(p[3] + p[4])
-    assert note.survival_score_if_stays == pytest.approx((p[3] + p[4]) / 2)
+    # one queue per product: the whole-blood unit S2 is not ahead of the red cells, and the red-cell
+    # queue gets the red-cell share of the site's requests (31 of 34 after one pseudo-unit each)
+    rates = queue_rates(DEMAND, "H1", "O+", "RBC", 16, RankingConfig())
+    assert rates == pytest.approx(DEMAND.request_rates("H1", "O+", 16) * 31 / 34)
+    p = fefo_use_probabilities([9, 14, 15, 16], rates, SIZES)
+    assert note.expected_use_if_stays == pytest.approx(p[2] + p[3])
+    assert note.survival_score_if_stays == pytest.approx((p[2] + p[3]) / 2)
+    pooled = _annotate(config=RankingConfig(issue_model="pooled"))
+    q = fefo_use_probabilities([9, 11, 14, 15, 16], DEMAND.request_rates("H1", "O+", 16), SIZES)
+    assert pooled.expected_use_if_stays == pytest.approx(q[3] + q[4])
     lo, hi = note.interval_if_stays
     assert lo <= note.survival_score_if_stays <= hi
 
@@ -213,6 +222,17 @@ def test_loader_reads_the_snapshot_requests_and_routine_calendar(tmp_path):
             ],  # after the snapshot: ignored
         )
         conn.execute(
+            "CREATE TABLE units (unit_id TEXT, component TEXT, current_facility_id TEXT, "
+            "status TEXT, status_date TEXT)"
+        )
+        conn.executemany(
+            "INSERT INTO units VALUES (?, ?, ?, ?, ?)",
+            [
+                ("T1", "RBC", "HSP-1", "transfused", "2026-01-20"),
+                ("T2", "WB", "HSP-1", "transfused", "2026-02-05"),  # after the snapshot: ignored
+            ],
+        )
+        conn.execute(
             "CREATE TABLE facilities (facility_id TEXT, facility_type TEXT, "
             "supply_centre_id TEXT, routine_deliveries_per_week REAL)"
         )
@@ -228,6 +248,7 @@ def test_loader_reads_the_snapshot_requests_and_routine_calendar(tmp_path):
     assert inputs.stock["unit_id"].tolist() == ["U1"]
     assert inputs.demand.daily_unit_rate[("HSP-1", "O+")] == pytest.approx(2 / 92)
     assert inputs.routine_run_days("RBTC-1", "HSP-1") == frozenset({0, 2, 4})
+    assert inputs.demand.transfused_counts == {("HSP-1", "RBC"): 1}
     with pytest.raises(ValueError):
         load_annotation_inputs(db, datetime(2025, 1, 1, tzinfo=EAT), RankingConfig())
 
@@ -257,3 +278,21 @@ def test_annotates_a_real_eligible_batch_from_the_pipeline_database():
     )
     assert 0.0 <= note.survival_score_if_stays <= 1.0 and 0.0 <= note.survival_score_if_moved <= 1.0
     assert note.send_by is None or inputs.origin <= note.send_by <= note.latest_feasible
+
+
+def test_precomputed_scores_give_the_same_annotation():
+    from ranking.score import survival_scores
+
+    scored = survival_scores(STOCK, DEMAND, ORIGIN, RankingConfig())
+    fresh, reused = _annotate(), _annotate(scored=scored)
+    assert reused == fresh
+
+
+def test_site_scores_are_the_rows_of_the_two_sites_for_one_group():
+    from ranking.annotate import AnnotationInputs
+
+    inputs = AnnotationInputs(ORIGIN, STOCK, DEMAND, pd.DataFrame())
+    rows = inputs.site_scores(RankingConfig(), "H1", "H2", "O+")
+    assert set(rows["unit_id"]) == {"S1", "S2", "S3", "S4", "S5", "D1"}
+    assert inputs.site_scores(RankingConfig(), "H9", "H8", "O+").empty
+    assert _annotate(scored=rows) == _annotate()

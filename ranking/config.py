@@ -30,6 +30,11 @@ class RankingConfig:
     # Team decision: red cells and whole blood form one queue for red-cell requests; every unit
     # keeps its product_type. ("RBC",) reproduces the red-cell-only validation figures.
     pool_components: tuple[str, ...] = ("RBC", "WB")
+    # How the pooled products share demand. "by_product": one queue per product, each
+    # with the share of the site's requests that product served before the origin (the
+    # dataset serves each hospital's preferred product first). "pooled": one queue across
+    # the products, oldest first (the design measurements).
+    issue_model: str = "by_product"
     mc_paths: int = 2000
     seed: int = 20261110
     # A reliability bin with fewer units than this is merged with its neighbour.
@@ -46,5 +51,7 @@ class RankingConfig:
         lo, hi = self.lambda_quantiles
         if not 0.0 < lo < hi < 1.0:
             raise ValueError("lambda_quantiles must satisfy 0 < low < high < 1")
+        if self.issue_model not in ("by_product", "pooled"):
+            raise ValueError("issue_model must be 'by_product' or 'pooled'")
         if not self.pool_components or self.mc_paths < 1 or self.calibration_min_bin < 1:
             raise ValueError("pool_components, mc_paths and calibration_min_bin must be set")

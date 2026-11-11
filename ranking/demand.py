@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from statistics import NormalDist
 
@@ -26,6 +26,9 @@ class DemandModel:
     request_counts: Mapping[tuple[str, str], int]  # history size, for the rate interval
     size_pmf: tuple[float, ...]  # P(request asks for k units), k = 1..6
     weekday_weights: tuple[float, ...]  # Monday..Sunday, mean 1
+    # (facility_id, product_type) -> units transfused before the origin, for the share of
+    # demand each product takes at a hospital (empty when no unit history is given).
+    transfused_counts: Mapping[tuple[str, str], int] = field(default_factory=dict)
 
     @property
     def mean_request_size(self) -> float:
@@ -45,6 +48,24 @@ class DemandModel:
         first = self.origin.weekday()
         weights = np.array([self.weekday_weights[(first + d) % 7] for d in range(days)])
         return base * weights
+
+    def product_share(self, facility_id: str, product: str, products: tuple[str, ...]) -> float:
+        """Share of the site's red-cell requests served by `product` among `products`.
+
+        Learned from the units transfused at the site before the origin, with one pseudo-unit
+        per product so that a product never seen there keeps a small share. A single product
+        always gets 1. Without any unit history the share is unknown and a ValueError is raised
+        rather than guessed.
+        """
+        if product not in products:
+            raise ValueError(f"{product} is not one of {products}")
+        if len(products) > 1 and not self.transfused_counts:
+            raise ValueError(
+                "product shares need the unit history (DemandModel.from_history(units=...)); "
+                "without it use issue_model='pooled'"
+            )
+        counts = {p: self.transfused_counts.get((facility_id, p), 0) + 1 for p in products}
+        return counts[product] / sum(counts.values())
 
     def rate_interval_factors(
         self, facility_id: str, blood_group: str, quantiles: tuple[float, float]
@@ -72,6 +93,7 @@ class DemandModel:
         origin: date,
         *,
         weekday_profile: bool = True,
+        units: pd.DataFrame | None = None,
     ) -> DemandModel:
         """Learn demand from the requests strictly before `origin` and nothing else.
 
@@ -79,7 +101,8 @@ class DemandModel:
         elsewhere). The size law is the empirical law of units_requested over every red-cell
         request before the origin (all sites and groups: the largest sample); the weekday weights
         come from the hospital red-cell requests of known groups. `weekday_profile=False` gives
-        flat weights.
+        flat weights. `units` (unit_id, component, current_facility_id, status, status_date)
+        adds how many units of each product each site transfused before the origin.
         """
         history = requests[requests["requested_at"] < pd.Timestamp(origin)]
         slice_ = build_demand_slice(history, facilities)
@@ -101,7 +124,16 @@ class DemandModel:
         size_pmf = tuple((size_counts / size_counts.sum()).astype(float))
 
         weights = _weekday_weights(slice_.daily, origin) if weekday_profile else (1.0,) * 7
-        return cls(origin, daily_unit_rate, request_counts, size_pmf, weights)
+        transfused = _transfused_counts(units, origin) if units is not None else {}
+        return cls(origin, daily_unit_rate, request_counts, size_pmf, weights, transfused)
+
+
+def _transfused_counts(units: pd.DataFrame, origin: date) -> dict[tuple[str, str], int]:
+    """Units transfused strictly before `origin`, per (facility_id, component)."""
+    done = units[units["status"].eq("transfused")
+                 & (pd.to_datetime(units["status_date"]) < pd.Timestamp(origin))]  # fmt: skip
+    counts = done.groupby(["current_facility_id", "component"]).size()
+    return {(str(site), str(product)): int(n) for (site, product), n in counts.items()}
 
 
 def _slice_rows(requests: pd.DataFrame, hospitals: tuple[str, ...]) -> pd.DataFrame:
