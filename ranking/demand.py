@@ -76,8 +76,10 @@ class DemandModel:
         """Learn demand from the requests strictly before `origin` and nothing else.
 
         The unit rate is forecasting.candidate.candidate_forecast / 7 (never recomputed
-        elsewhere). The size law and the weekday weights come from the same hospital red-cell
-        requests of known groups. `weekday_profile=False` gives flat weights.
+        elsewhere). The size law is the empirical law of units_requested over every red-cell
+        request before the origin (all sites and groups: the largest sample); the weekday weights
+        come from the hospital red-cell requests of known groups. `weekday_profile=False` gives
+        flat weights.
         """
         history = requests[requests["requested_at"] < pd.Timestamp(origin)]
         slice_ = build_demand_slice(history, facilities)
@@ -91,10 +93,11 @@ class DemandModel:
             for site in slice_.hospitals
             for group in KNOWN_GROUPS
         }
-        sizes = rows["units_requested"].clip(1, MAX_REQUEST_SIZE).astype(int)
+        red_cell = history[history["component_requested"] == CONFIG.component]
+        sizes = red_cell["units_requested"].clip(1, MAX_REQUEST_SIZE).astype(int)
         size_counts = sizes.value_counts().reindex(range(1, MAX_REQUEST_SIZE + 1), fill_value=0)
         if size_counts.sum() == 0:
-            raise ValueError(f"No hospital requests before {origin}; cannot learn request sizes.")
+            raise ValueError(f"No red-cell requests before {origin}; cannot learn request sizes.")
         size_pmf = tuple((size_counts / size_counts.sum()).astype(float))
 
         weights = _weekday_weights(slice_.daily, origin) if weekday_profile else (1.0,) * 7

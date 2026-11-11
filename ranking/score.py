@@ -15,7 +15,12 @@ SCORE_COLUMNS = ["product_type", "days_left", "rank", "p", "p_lo", "p_hi"]
 
 
 def survival_scores(
-    stock: pd.DataFrame, demand: DemandModel, origin: date, config: RankingConfig
+    stock: pd.DataFrame,
+    demand: DemandModel,
+    origin: date,
+    config: RankingConfig,
+    *,
+    with_interval: bool = True,
 ) -> pd.DataFrame:
     """Add p, p_lo, p_hi, rank and days_left to a stock table.
 
@@ -30,6 +35,8 @@ def survival_scores(
     (expiry_date - origin + 1); a unit already expired is scored 0 and leaves the queue. Rows
     that cannot be scored (a product outside the pool, no blood group, a site with no demand
     model) keep NaN in p, p_lo, p_hi and rank. Row order and index are those of `stock`.
+    `with_interval=False` skips p_lo and p_hi (left NaN), which saves two thirds of the time when
+    only the score itself is needed, as in the historical evaluation.
     """
     result = stock.copy()
     result["product_type"] = result["component"]
@@ -42,7 +49,7 @@ def survival_scores(
     sites = {site for site in result.loc[pooled, "facility_id"].unique() if demand.has_site(site)}
     scorable = result[pooled & result["facility_id"].isin(sites)].assign(_expiry=expiry)
     for (site, group), queue in scorable.groupby(["facility_id", "blood_group"], sort=False):
-        _score_queue(result, queue, demand, site, group, origin, config)
+        _score_queue(result, queue, demand, site, group, config, with_interval)
     return result[list(stock.columns) + [c for c in SCORE_COLUMNS if c not in stock.columns]]
 
 
@@ -52,8 +59,8 @@ def _score_queue(
     demand: DemandModel,
     site: str,
     group: str,
-    origin: date,
     config: RankingConfig,
+    with_interval: bool,
 ) -> None:
     """Fill rank, p, p_lo and p_hi of one (site, group) queue inside `result`."""
     expired = queue["days_left"] < 1
@@ -63,10 +70,12 @@ def _score_queue(
         return
     left = live["days_left"].to_numpy(dtype=int)
     rates = demand.request_rates(site, group, int(left.max()))
-    low, high = demand.rate_interval_factors(site, group, config.lambda_quantiles)
     pmf = demand.size_pmf
     result.loc[live.index, "rank"] = np.arange(1, len(live) + 1)
     result.loc[live.index, "p"] = fefo_use_probabilities(left, rates, pmf, config.cap_extra)
+    if not with_interval:
+        return
+    low, high = demand.rate_interval_factors(site, group, config.lambda_quantiles)
     result.loc[live.index, "p_lo"] = fefo_use_probabilities(
         left, rates * low, pmf, config.cap_extra
     )
