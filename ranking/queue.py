@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from functools import lru_cache
 
 import numpy as np
 
-from ranking.compound import panjer_pmf
+from ranking.compound import cached_pmf, checked_sizes
 
 
 def _cumulative_rates(
@@ -44,10 +45,29 @@ def fefo_use_probabilities(
     unexpired unit closest to its expiry, so a unit that expires unused never consumed demand.
     """
     left, cumulative = _cumulative_rates(days_left, daily_request_rates)
+    sizes = checked_sizes(size_pmf)
+    if left.size == 0:
+        return np.empty(0)
+    horizon = int(left[-1])  # only the rates up to the last expiry matter
+    key = (tuple(left.tolist()), tuple(cumulative[: horizon + 1].tolist()), sizes, int(cap_extra))
+    return _fefo_cached(*key).copy()
+
+
+@lru_cache(maxsize=65536)
+def _fefo_cached(
+    left_key: tuple[int, ...],
+    cumulative_key: tuple[float, ...],
+    sizes: tuple[float, ...],
+    cap_extra: int,
+) -> np.ndarray:
+    """The recursion of fefo_use_probabilities for validated, hashable inputs (memoised).
+
+    Annotating a whole suggestion list scores the same queues many times (one sender or one
+    destination appears on many cards); the result only depends on these inputs.
+    """
+    left, cumulative = np.array(left_key), np.array(cumulative_key)
     n = left.size
     out = np.empty(n)
-    if n == 0:
-        return out
     cap = n + cap_extra
     x = np.zeros(cap + 1)  # law of the demand left over for the younger units
     x[0] = 1.0
@@ -58,13 +78,14 @@ def fefo_use_probabilities(
         previous = int(left[j])
         law = demand_laws.get(interval_rate)
         if law is None:
-            law = demand_laws[interval_rate] = panjer_pmf(interval_rate, size_pmf, cap)
+            law = demand_laws[interval_rate] = cached_pmf(max(0.0, interval_rate), sizes, cap)
         arrived = np.convolve(x, law)[: cap + 1]
         arrived[cap] += max(0.0, 1.0 - float(arrived.sum()))
         out[j] = 1.0 - arrived[0]
         x = np.zeros(cap + 1)
         x[0] = arrived[0] + arrived[1]
         x[1:cap] = arrived[2 : cap + 1]
+    out.setflags(write=False)
     return out
 
 
@@ -79,6 +100,7 @@ def rank_lower_bound(
     reaches j, as if every older unit that expires unused had still consumed demand.
     """
     left, cumulative = _cumulative_rates(days_left, daily_request_rates)
+    sizes = checked_sizes(size_pmf)
     n = left.size
     out = np.empty(n)
     laws: dict[int, np.ndarray] = {}
@@ -86,6 +108,7 @@ def rank_lower_bound(
         life = int(left[j])
         law = laws.get(life)
         if law is None:
-            law = laws[life] = panjer_pmf(float(cumulative[life]), size_pmf, n + 6)
+            rate = max(0.0, round(float(cumulative[life]), 12))
+            law = laws[life] = cached_pmf(rate, sizes, n + 6)
         out[j] = 1.0 - float(law[: j + 1].sum())
     return out
