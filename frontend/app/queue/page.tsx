@@ -11,6 +11,7 @@ import { OutcomeNote, SuggestionCard } from "@/components/suggestion-card";
 import { ApiError } from "@/lib/api/client";
 import { useSuggestions } from "@/lib/api/hooks";
 import type { ActionResult, Suggestion, SuggestionAction } from "@/lib/api/schemas";
+import { shortName } from "@/lib/facilities";
 import { FIXTURE_SUGGESTIONS } from "@/lib/fixtures/suggestions";
 
 type Decision = { suggestion: Suggestion; action: SuggestionAction; result: ActionResult };
@@ -77,8 +78,9 @@ export default function QueuePage() {
               <li key={`${d.suggestion.suggestion_id}-${d.action}`} className="space-y-1">
                 <p className="text-sm">
                   {d.suggestion.unit_ids.length} {d.suggestion.blood_group}{" "}
-                  {d.suggestion.component}, <code>{d.suggestion.from_facility_id}</code> →{" "}
-                  <code>{d.suggestion.to_facility_id}</code>
+                  {d.suggestion.component},{" "}
+                  {shortName(d.suggestion.from_facility_id, d.suggestion.from_facility_name)} →{" "}
+                  {shortName(d.suggestion.to_facility_id, d.suggestion.to_facility_name)}
                 </p>
                 <OutcomeNote action={d.action} result={d.result} />
               </li>

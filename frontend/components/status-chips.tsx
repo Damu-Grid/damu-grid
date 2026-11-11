@@ -60,6 +60,13 @@ export function ExpiryChip({ expiryDate, asOf }: { expiryDate: string; asOf: str
   );
 }
 
+/** Hours under two days, whole days after that (the API sends fractional hours). */
+export function formatAge(hours: number) {
+  if (hours < 48) return `${Math.max(0, Math.round(hours))} h`;
+  const days = Math.round(hours / 24);
+  return `${days} days`;
+}
+
 export function DataAgeChip({ asOf, ageHours }: { asOf: string; ageHours: number | null }) {
   const when = new Date(asOf).toLocaleString("en-GB", {
     timeZone: "Africa/Nairobi",
@@ -69,7 +76,7 @@ export function DataAgeChip({ asOf, ageHours }: { asOf: string; ageHours: number
   return (
     <Chip className="bg-muted text-muted-foreground" title="Stock snapshot time (EAT)">
       Stock as of {when} EAT
-      {ageHours !== null && ` · data age ${ageHours} h`}
+      {ageHours !== null && ` · data age ${formatAge(ageHours)}`}
     </Chip>
   );
 }
