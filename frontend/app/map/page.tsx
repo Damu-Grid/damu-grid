@@ -19,7 +19,7 @@ const DOT_FILL: Record<FacilityRisk, string> = {
 
 const LEGEND_DOT: Record<FacilityRisk, string> = {
   shortage: "bg-destructive",
-  expiry: "bg-expiry",
+  expiry: "bg-expiry-foreground",
   steady: "bg-brand",
   unknown: "bg-muted",
 };
