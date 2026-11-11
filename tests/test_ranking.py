@@ -1,12 +1,15 @@
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.audit import AuditStore
 from backend.app.explanations import ExplanationService, ExplanationSettings
 from backend.app.main import create_app
-from backend.app.ranking import SQLiteSuggestionProvider
+from backend.app.ranking import SQLiteSuggestionProvider, clear_ranking_cache
+from backend.app.schemas import Suggestion
 from backend.app.services import SuggestionServiceUnavailable
 from backend.app.state import ActionStore
 
@@ -273,3 +276,171 @@ def test_default_provider_supports_changed_destination_and_unit_selection(tmp_pa
     assert changed.json()["status"] == "suggested"
     assert changed.json()["suggestion"]["unit_ids"] == ["U1"]
     assert changed.json()["suggestion"]["to_facility_id"] == "HSP-001"
+
+
+SURVIVAL_FIELDS = (
+    "expected_use_if_stays",
+    "expected_use_if_moved",
+    "survival_score_if_stays",
+    "survival_score_if_moved",
+    "send_by",
+)
+
+
+def build_scored_snapshot(path) -> None:
+    """A snapshot with a full year of request and unit history, so a score can be computed.
+
+    HSP-A (sender) has little demand and six eligible O+ red cells plus one exposed unit;
+    HSP-B (recipient) asks for three units a day. RBTC-X, a blood centre, also holds eligible
+    units: the centre has no demand model, so its suggestions cannot be scored.
+    """
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE facilities (
+                facility_id TEXT, name TEXT, facility_type TEXT, supply_centre_id TEXT,
+                routine_deliveries_per_week REAL
+            );
+            CREATE TABLE routes (
+                from_facility_id TEXT, to_facility_id TEXT,
+                typical_travel_hours REAL, road_quality TEXT
+            );
+            CREATE TABLE requests (
+                facility_id TEXT, requested_at TEXT, patient_blood_group TEXT,
+                units_requested INTEGER, component_requested TEXT
+            );
+            CREATE TABLE dg_snapshot_meta (as_of TEXT);
+            CREATE TABLE dg_snapshot_units (
+                as_of TEXT, unit_id TEXT, facility_id TEXT, component TEXT, blood_group TEXT,
+                expiry_date TEXT, status TEXT, temp_excursion_exposed INTEGER,
+                receipt_status TEXT
+            );
+            CREATE TABLE dg_cold_chain_flags (
+                flag_type TEXT, scope TEXT, unit_id TEXT, blocks_suggestion INTEGER
+            );
+            CREATE TABLE units (
+                unit_id TEXT, component TEXT, current_facility_id TEXT, status TEXT,
+                status_date TEXT
+            );
+            """
+        )
+        connection.executemany(
+            "INSERT INTO facilities VALUES (?, ?, ?, ?, ?)",
+            [
+                ("RBTC-X", "Synthetic Centre", "regional_blood_centre", None, None),
+                ("HSP-A", "Synthetic Sender", "county_hospital", "RBTC-X", 3.0),
+                ("HSP-B", "Synthetic Recipient", "county_hospital", "RBTC-X", 3.0),
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO routes VALUES (?, ?, ?, ?)",
+            [("HSP-A", "HSP-B", 2.0, "good"), ("RBTC-X", "HSP-B", 3.0, "good")],
+        )
+        start = datetime(2025, 11, 1, 10, 0, 0)
+        requests = []
+        for day in range(365):
+            stamp = (start + timedelta(days=day)).strftime("%Y-%m-%d %H:%M:%S")
+            requests.append(("HSP-B", stamp, "O+", 3, "RBC"))
+            if day % 7 == 0:
+                requests.append(("HSP-A", stamp, "O+", 1, "RBC"))
+        connection.executemany("INSERT INTO requests VALUES (?, ?, ?, ?, ?)", requests)
+        connection.execute("INSERT INTO dg_snapshot_meta VALUES (?)", (AS_OF_TEXT,))
+        shelf = [(f"A{i}", "HSP-A", f"2026-11-{20 + i}", 0) for i in range(6)]
+        shelf += [("A-exposed", "HSP-A", "2026-11-28", 1)]
+        shelf += [(f"C{i}", "RBTC-X", f"2026-11-{24 + i}", 0) for i in range(4)]
+        connection.executemany(
+            "INSERT INTO dg_snapshot_units VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (AS_OF_TEXT, unit, site, "RBC", "O+", expiry, "in_stock", exposed, "never_moved")
+                for unit, site, expiry, exposed in shelf
+            ],
+        )
+        history = [(f"H{i}", "RBC", "HSP-B", "transfused", "2026-06-01") for i in range(30)]
+        history += [(f"W{i}", "WB", "HSP-B", "transfused", "2026-06-01") for i in range(3)]
+        history += [(f"S{i}", "RBC", "HSP-A", "transfused", "2026-06-01") for i in range(5)]
+        connection.executemany("INSERT INTO units VALUES (?, ?, ?, ?, ?)", history)
+
+
+def _moves(suggestions):
+    return [(s.unit_ids, s.from_facility_id, s.to_facility_id, s.policy) for s in suggestions]
+
+
+def test_survival_fields_stay_empty_when_no_score_can_be_computed(tmp_path):
+    # the provider's minimal snapshot has no unit history and a blood-centre sender
+    database_path = tmp_path / "snapshot.sqlite"
+    build_snapshot(database_path)
+    provider = SQLiteSuggestionProvider(database_path, AS_OF)
+
+    suggestions = provider.suggest("expiry_aware", ActionStore.DEFAULT_SETTINGS, set())
+
+    assert {s.unit_ids[0] for s in suggestions} == {"U0", "U1"}  # eligibility decided
+    for suggestion in suggestions:
+        assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
+        assert suggestion.uncertainty.method == "trailing_28_day_request_average"
+        assert "fefo" not in suggestion.reason_deterministic
+
+
+def test_survival_fields_are_filled_when_a_score_can_be_computed(tmp_path, monkeypatch):
+    database_path = tmp_path / "scored.sqlite"
+    build_scored_snapshot(database_path)
+    settings = ActionStore.DEFAULT_SETTINGS
+    scored = SQLiteSuggestionProvider(database_path, AS_OF).suggest("expiry_aware", settings, set())
+
+    def unavailable(*args, **kwargs):
+        raise ValueError("ranking disabled for the comparison")
+
+    monkeypatch.setattr("backend.app.ranking.load_annotation_inputs", unavailable)
+    clear_ranking_cache()
+    plain = SQLiteSuggestionProvider(database_path, AS_OF).suggest("expiry_aware", settings, set())
+
+    # the score never adds, drops or reorders what eligibility allowed
+    assert _moves(scored) == _moves(plain) and scored
+    assert "A-exposed" not in {unit for s in scored for unit in s.unit_ids}
+    hospital = [s for s in scored if s.from_facility_id == "HSP-A"]
+    centre = [s for s in scored if s.from_facility_id == "RBTC-X"]
+    assert hospital and centre
+    for suggestion in hospital:
+        assert 0.0 <= suggestion.survival_score_if_stays <= 1.0
+        assert 0.0 <= suggestion.survival_score_if_moved <= 1.0
+        assert suggestion.survival_score_if_moved > suggestion.survival_score_if_stays
+        assert suggestion.expected_use_if_moved == pytest.approx(
+            suggestion.survival_score_if_moved * len(suggestion.unit_ids)
+        )
+        assert suggestion.uncertainty.method == "fefo_compound_poisson"
+        assert suggestion.uncertainty.nominal_level == 0.8
+        assert suggestion.reason_deterministic.startswith("1 eligible RBC unit(s)")
+        assert suggestion.warnings[0].startswith("Synthetic request history")
+        if suggestion.send_by is None:
+            assert "net_gain_below_minimum" in suggestion.warnings
+        else:  # never later than expiry - one travel day - one buffer day
+            assert AS_OF.date() < suggestion.send_by
+            assert suggestion.send_by <= suggestion.expiry_date - timedelta(days=2)
+        Suggestion.model_validate(suggestion.model_dump())
+    for suggestion in centre:  # no demand model for a blood centre: nothing is guessed
+        assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
+    for suggestion in plain:
+        assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
+    clear_ranking_cache()
+
+
+def test_survival_inputs_are_reloaded_when_the_database_changes(tmp_path):
+    database_path = tmp_path / "scored.sqlite"
+    build_scored_snapshot(database_path)
+    settings = ActionStore.DEFAULT_SETTINGS
+    first = SQLiteSuggestionProvider(database_path, AS_OF).suggest("expiry_aware", settings, set())
+    again = SQLiteSuggestionProvider(database_path, AS_OF).suggest("expiry_aware", settings, set())
+
+    def fields(items):  # data_age_hours follows the clock, everything else must be identical
+        return [s.model_dump(exclude={"data_age_hours"}) for s in items]
+
+    assert fields(again) == fields(first)  # served from the cache
+    with sqlite3.connect(database_path) as connection:  # the pipeline rebuilds the snapshot
+        connection.execute("DELETE FROM units")
+    os.utime(database_path, ns=(1, database_path.stat().st_mtime_ns + 10**9))
+    rebuilt = SQLiteSuggestionProvider(database_path, AS_OF).suggest(
+        "expiry_aware", settings, set()
+    )
+    assert _moves(rebuilt) == _moves(first)
+    # without unit history the product shares are unknown, so nothing is guessed any more
+    assert all(s.survival_score_if_stays is None for s in rebuilt)
+    clear_ranking_cache()

@@ -43,6 +43,8 @@ Four demo roles: `coordinator`, `sender`, `receiver`, `safety`. Test logins will
 
 `expected_use_*` values are modelling assumptions (for example a Poisson expected-use calculation). Never call them clinical clearance. If not yet computed, use `null` and explain the ranking rule in `reason_deterministic`.
 
+The pipeline-backed provider fills `expected_use_*`, `survival_score_*` and `send_by` with `ranking.annotate` (exact oldest-first queue under compound Poisson demand, `uncertainty.method = "fefo_compound_poisson"`; see `docs/RANKING.md`). When the score cannot be computed for a batch (for example a blood-centre sender, which has no demand model, or a database without unit history), all five fields stay `null` and the provider's own uncertainty and reason are kept. The score never adds, drops or reorders suggestions: eligibility alone decides what is listed. `send_by` is `null` with the warning `net_gain_below_minimum` when the expected gain does not cover a special trip.
+
 ## Endpoints (Tier 1)
 
 | Method | Path | Role | Purpose |
