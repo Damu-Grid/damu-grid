@@ -30,7 +30,9 @@ Stale reports, unconfirmed receipts and missing temperature evidence can make a 
 - What remains in progress: completing the demo video and slides. Shipped from Tier 2 so far: map, offline mode with sync queue, alerts panel, and send-by dates. Still future work: multi-component support (platelets and frozen plasma need their own shelf-life and routing policies before they are treated like red cells) and the remaining Tier 2 items tracked in `docs/IMPLEMENTATION_PLAN.md`.
 
 Demo video (3 minutes or less): [link to be added]
-Live demo: [link] · Test log-in: [user / password to be added]
+Live demo: not deployed. We ran out of time within the 24-hour build to finish a hosted deployment, so there is no live link. The full app (FastAPI backend and Next.js frontend) runs on localhost; follow [How to run it](#how-to-run-it) below, which takes a few minutes on a laptop.
+
+**Submission snapshot:** the code as of the 12:00 EAT deadline (Wed 11 Nov 2026) is tagged [`submission-final`](https://github.com/Damu-Grid/damu-grid/tree/submission-final). Commits after 12:00 EAT (#72 onward) are deployment fixes only; no features or UI changes.
 
 ## How to run it
 
