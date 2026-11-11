@@ -162,3 +162,16 @@ def test_pooled_run_reports_each_product_and_the_total(pooled_run):
     text = render_markdown(pooled_run)
     assert "Test window, WB" in text and "Closing stock" in text
     assert "true 85% of the time" in text  # the warning about reading the score is in the report
+
+
+@pytest.mark.dataset
+def test_closing_plan_moves_only_eligible_red_cells_and_matches_its_monte_carlo_check(pooled_run):
+    plan = pooled_run["closing_plan"]
+    assert plan["eligible_moves"] > 0 and plan["units_planned"] >= plan["units_suggested"]
+    assert plan["batches_planned"] >= plan["batches_suggested"] == len(plan["batches"])
+    low, high = plan["monte_carlo_interval_95"]
+    assert low <= plan["monte_carlo_gain_total"] <= high
+    for batch in plan["batches"]:
+        assert set(batch["products"]) == {"RBC"}  # only the queue component is ever moved
+        assert batch["net_gain"] >= RankingConfig().min_gain_units
+        assert abs(batch["model_gain"] - batch["monte_carlo_gain"]) < 0.1

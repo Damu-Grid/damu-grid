@@ -23,9 +23,11 @@ import numpy as np
 import pandas as pd
 
 from forecasting.config import CONFIG, HOSPITAL_FACILITY_TYPES, PROCESSED_DIR, evaluation_origins
-from pipeline.config import load_config
+from pipeline.coldchain import unit_flags
+from pipeline.config import PipelineConfig, load_config
+from pipeline.eligibility import NetworkIndex, check_move, unit_eligibility
 from pipeline.load import load_all
-from pipeline.snapshot import build_snapshot
+from pipeline.snapshot import Snapshot, build_snapshot
 from ranking.calibration import (
     auc,
     brier,
@@ -37,13 +39,18 @@ from ranking.calibration import (
 )
 from ranking.config import RankingConfig
 from ranking.demand import DemandModel
+from ranking.gain import arrival_lag_days, plan_batches
 from ranking.queue import rank_lower_bound
 from ranking.score import survival_scores
+from ranking.simulate import simulate_transfer_gain
 
 END = pd.Timestamp("2026-10-31")  # last day of the data: outcomes are final up to here
 DAYS_LEFT_SCALE = 7.0  # the "days left only" baseline is days_left / (days_left + this)
 FINAL_STATUSES = ("transfused", "expired")
-TABLES = ["facilities", "donations", "units", "transfers", "daily_stock", "requests"]
+TABLES = [
+    "facilities", "routes", "donations", "units", "transfers", "daily_stock", "power_outages",
+    "temperature_logs", "requests",
+]  # fmt: skip
 METHODS = {
     "constant": "Constant base rate (calibration window)",
     "days_left": "Days left only",
@@ -216,30 +223,27 @@ def group_families(test: pd.DataFrame) -> list[dict]:
     return rows
 
 
+def _hospitals(facilities: pd.DataFrame) -> set[str]:
+    """Facility ids of the seven hospital classes (the demand sites)."""
+    hospital = facilities["facility_type"].isin(HOSPITAL_FACILITY_TYPES)
+    return set(facilities.loc[hospital, "facility_id"])
+
+
 def closing_stock(
-    tables: dict[str, pd.DataFrame], requests: pd.DataFrame, config: RankingConfig
+    snapshot: Snapshot, facilities: pd.DataFrame, demand: DemandModel, config: RankingConfig
 ) -> dict:
     """Expected units that expire unused from the closing stock of the hospitals, per product.
 
     Every unit on a hospital shelf at the snapshot counts (eligible or not), scored on the first
     day after the snapshot. Expected expired = sum of (1 - p).
     """
-    snapshot = build_snapshot(tables, load_config())
-    origin = snapshot.as_of.date() + timedelta(days=1)
-    hospitals = set(
-        tables["facilities"].loc[
-            tables["facilities"]["facility_type"].isin(HOSPITAL_FACILITY_TYPES), "facility_id"
-        ]
-    )
     stock = snapshot.units[
-        snapshot.units["facility_id"].isin(hospitals) & snapshot.units["blood_group"].notna()
+        snapshot.units["facility_id"].isin(_hospitals(facilities))
+        & snapshot.units["blood_group"].notna()
     ]
     stock = stock[stock["component"].isin(config.pool_components)]
-    demand = DemandModel.from_history(
-        requests, tables["facilities"], origin, weekday_profile=config.weekday_profile
-    )
-    scored = survival_scores(stock, demand, origin, config, with_interval=False)
-    result: dict = {"origin": origin.isoformat()}
+    scored = survival_scores(stock, demand, demand.origin, config, with_interval=False)
+    result: dict = {"origin": demand.origin.isoformat()}
     for name, part in _subsets(scored).items():
         result[name] = {
             "units": len(part),
@@ -249,6 +253,171 @@ def closing_stock(
     return result
 
 
+def eligible_hospital_moves(
+    snapshot: Snapshot,
+    tables: dict[str, pd.DataFrame],
+    pipeline_config: PipelineConfig,
+    demand: DemandModel,
+    config: RankingConfig,
+) -> pd.DataFrame:
+    """Moves between hospitals that pass every pipeline eligibility check on the closing stock.
+
+    Units are checked with pipeline.eligibility (cold-chain flags included); a destination is
+    offered when the demand model expects more units over seven days than its pooled shelf holds
+    (gap = ceil(7 * daily unit rate) - units on the shelf), the seven-day horizon of the backend
+    gap. Only moves with no failing reason are returned.
+    """
+    facilities, routes = tables["facilities"], tables["routes"]
+    hospitals = _hospitals(facilities)
+    flags = unit_flags(snapshot.units, tables, pipeline_config, snapshot.as_of)
+    eligible = unit_eligibility(snapshot.units, pipeline_config, snapshot.as_of, unit_flags=flags)
+    units = eligible.eligible[eligible.eligible["facility_id"].isin(hospitals)]
+    shelf = snapshot.units[snapshot.units["component"].isin(config.pool_components)]
+    on_shelf = shelf.groupby(["facility_id", "blood_group"]).size()
+    gaps = {
+        (site, group): max(0, int(np.ceil(7 * rate)) - int(on_shelf.get((site, group), 0)))
+        for (site, group), rate in demand.daily_unit_rate.items()
+    }
+    index = NetworkIndex.build(routes, facilities)
+    available = units.groupby(["facility_id", "component", "blood_group"]).size()
+    rows = []
+    for unit in units.to_dict("records"):
+        key = (unit["facility_id"], unit["component"], unit["blood_group"])
+        for (site, group), gap in gaps.items():
+            if group != unit["blood_group"] or site == unit["facility_id"] or gap <= 0:
+                continue
+            move = check_move(
+                unit,
+                site,
+                as_of=snapshot.as_of,
+                config=pipeline_config,
+                routes=routes,
+                facilities=facilities,
+                sender_available=int(available[key]),
+                recipient_gap=float(gap),
+                index=index,
+            )
+            if move["ok"]:
+                rows.append(move)
+    return pd.DataFrame(rows)
+
+
+def _batch_check(
+    batch: pd.DataFrame,
+    plan: pd.DataFrame,
+    pooled: pd.DataFrame,
+    travel: float,
+    demand: DemandModel,
+    pipeline_config: PipelineConfig,
+    config: RankingConfig,
+) -> dict:
+    """Monte Carlo re-estimate of one suggested batch, every other planned move applied."""
+    src, dst, group = batch.iloc[0][["from_facility_id", "to_facility_id", "blood_group"]]
+    mine = set(batch["unit_id"])
+    others = set(plan["unit_id"]) - mine
+    same_group = pooled["blood_group"] == group
+    at_sender = pooled[
+        same_group & (pooled["facility_id"] == src) & ~pooled["unit_id"].isin(others)
+    ]
+    into_dst = set(plan.loc[plan["to_facility_id"] == dst, "unit_id"]) & others
+    at_dest = pooled[same_group & (pooled["facility_id"] == dst) & ~pooled["unit_id"].isin(others)]
+    arriving = pooled[same_group & pooled["unit_id"].isin(into_dst)]
+    horizon = int(pooled["days_left"].max())
+    lag = arrival_lag_days(travel, pipeline_config.arrival_allowance_hours)
+    tau = (pd.Timestamp(batch.iloc[0]["send_by"]) - pd.Timestamp(demand.origin)).days
+    mc, se = simulate_transfer_gain(
+        at_sender["days_left"].to_numpy(),
+        list(at_dest["days_left"]) + list(arriving["days_left"]),
+        list(np.flatnonzero(at_sender["unit_id"].isin(mine).to_numpy())),
+        demand.request_rates(src, group, horizon),
+        demand.request_rates(dst, group, horizon),
+        demand.size_pmf,
+        dispatch_day=tau,
+        arrival_lag=lag,
+        paths=config.mc_paths * 10,
+        seed=config.seed,
+    )
+    first = batch.iloc[0]
+    return {
+        "batch_id": str(first["batch_id"]),
+        "from_facility_id": src,
+        "to_facility_id": dst,
+        "blood_group": group,
+        "units": len(batch),
+        "products": {str(k): int(v) for k, v in batch["component"].value_counts().items()},
+        "dispatch_day": str(first["send_by"]),
+        "travel_hours": travel,
+        "model_gain": float(first["net_gain"]) + (0.0 if first["uses_routine_run"]
+                                                  else config.trip_cost_units),
+        "net_gain": float(first["net_gain"]),
+        "waiting_cost_per_day": float(first["waiting_cost_per_day"]),
+        "monte_carlo_gain": mc,
+        "monte_carlo_se": se,
+    }  # fmt: skip
+
+
+def closing_plan(
+    snapshot: Snapshot,
+    tables: dict[str, pd.DataFrame],
+    pipeline_config: PipelineConfig,
+    demand: DemandModel,
+    config: RankingConfig,
+) -> dict:
+    """Greedy transfer plan on the closing stock and a Monte Carlo check of every batch.
+
+    The plan uses ranking.gain.plan_batches on the eligible hospital-to-hospital moves; the
+    queues hold every unit on the shelf. Each suggested batch is re-estimated with
+    ranking.simulate.simulate_transfer_gain on its own (every other planned move applied), so the
+    total is a sum of per-batch checks with an approximate 95% interval. Expected units under the
+    model's assumptions, not observed outcomes: no lateral transfer exists in the history.
+    """
+    moves = eligible_hospital_moves(snapshot, tables, pipeline_config, demand, config)
+    stock = snapshot.units[snapshot.units["facility_id"].isin(_hospitals(tables["facilities"]))]
+    min_days = int(np.ceil(pipeline_config.policy("RBC").min_remaining_hours_on_arrival / 24))
+    plan = plan_batches(
+        moves,
+        stock,
+        demand,
+        config,
+        arrival_allowance_hours=pipeline_config.arrival_allowance_hours,
+        sender_reserve_units=pipeline_config.default_sender_reserve_units,
+        min_remaining_days=min_days,
+    )
+    pooled = stock[stock["component"].isin(config.pool_components) & stock["blood_group"].notna()]
+    days_left = (pooled["expiry_date"].dt.normalize() - pd.Timestamp(demand.origin)).dt.days + 1
+    pooled = pooled.assign(days_left=days_left)[days_left >= 1]
+    travel = (
+        moves.groupby(["from_facility_id", "to_facility_id"])["typical_travel_hours"].first()
+        if len(moves)
+        else pd.Series(dtype=float)
+    )
+    batches = [
+        _batch_check(batch, plan, pooled, float(travel[(batch.iloc[0]["from_facility_id"],
+                                                         batch.iloc[0]["to_facility_id"])]),
+                     demand, pipeline_config, config)
+        for _, batch in plan[plan["suggested"]].groupby("batch_id")
+    ]  # fmt: skip
+    total_mc = float(sum(b["monte_carlo_gain"] for b in batches))
+    total_se = float(np.sqrt(sum(b["monte_carlo_se"] ** 2 for b in batches)))
+    return {
+        "eligible_moves": len(moves),
+        "eligible_units": int(moves["unit_id"].nunique()) if len(moves) else 0,
+        "units_planned": len(plan),
+        "batches_planned": int(plan["batch_id"].nunique()),
+        "planned_gain_before_trip_costs": float(
+            plan.drop_duplicates("batch_id")["batch_gain_now"].sum()
+        ),
+        "batches_suggested": len(batches),
+        "units_suggested": int(sum(b["units"] for b in batches)),
+        "model_gain_total": float(sum(b["model_gain"] for b in batches)),
+        "net_gain_total": float(sum(b["net_gain"] for b in batches)),
+        "trip_cost_units": config.trip_cost_units,
+        "monte_carlo_gain_total": total_mc,
+        "monte_carlo_interval_95": [total_mc - 1.96 * total_se, total_mc + 1.96 * total_se],
+        "batches": batches,
+    }
+
+
 def evaluate(config: RankingConfig) -> dict:
     """Run the whole evaluation for one configuration and return the JSON-ready payload."""
     tables, _ = load_all(names=TABLES)
@@ -256,9 +425,7 @@ def evaluate(config: RankingConfig) -> dict:
         units_requested=tables["requests"]["units_requested"].astype(int)
     )
     facilities = tables["facilities"]
-    hospitals = set(
-        facilities.loc[facilities["facility_type"].isin(HOSPITAL_FACILITY_TYPES), "facility_id"]
-    )
+    hospitals = _hospitals(facilities)
     pool = arrived_units(tables["units"], tables["transfers"], hospitals, config.pool_components)
     cal_origins, test_origins = calibration_origins(), evaluation_origins()
     calibration = score_origins(cal_origins, pool, requests, facilities, config)
@@ -275,7 +442,23 @@ def evaluate(config: RankingConfig) -> dict:
         "methods": method_table(calibration, test),
         "reliability_exact_test": reliability(test, config.calibration_min_bin),
         "blood_group_families_test": group_families(test),
-        "closing_stock": closing_stock(tables, requests, config),
+        **closing_sections(tables, requests, config),
+    }
+
+
+def closing_sections(
+    tables: dict[str, pd.DataFrame], requests: pd.DataFrame, config: RankingConfig
+) -> dict:
+    """Closing-stock waste and transfer plan, scored on the first day after the snapshot."""
+    pipeline_config = load_config()
+    snapshot = build_snapshot(tables, pipeline_config)
+    origin = snapshot.as_of.date() + timedelta(days=1)
+    demand = DemandModel.from_history(
+        requests, tables["facilities"], origin, weekday_profile=config.weekday_profile
+    )
+    return {
+        "closing_stock": closing_stock(snapshot, tables["facilities"], demand, config),
+        "closing_plan": closing_plan(snapshot, tables, pipeline_config, demand, config),
     }
 
 
@@ -349,6 +532,35 @@ def render_markdown(payload: dict) -> str:
             lines.append(
                 f"| {name} | {c['units']:,} | {_fmt(c['expected_expired'], 1)} | "
                 f"{c['units_below_half']:,} |"
+            )
+    plan = payload["closing_plan"]
+    low, high = plan["monte_carlo_interval_95"]
+    lines += ["", "## Transfer plan on the closing stock (expected units, model estimate)", ""]
+    lines.append(
+        f"{plan['eligible_moves']:,} eligible hospital-to-hospital moves for "
+        f"{plan['eligible_units']:,} units; {plan['units_planned']:,} units in "
+        f"{plan['batches_planned']:,} planned batches (each unit gains at least the minimum; "
+        f"{_fmt(plan['planned_gain_before_trip_costs'], 2)} units if all were sent today, before "
+        "trip costs); "
+        f"{plan['batches_suggested']:,} batches suggested ({plan['units_suggested']:,} units). "
+        f"Expected extra units used: {_fmt(plan['model_gain_total'], 2)} before trip costs, "
+        f"{_fmt(plan['net_gain_total'], 2)} after a cost of {_fmt(plan['trip_cost_units'], 2)} "
+        f"per special trip. Monte Carlo check: {_fmt(plan['monte_carlo_gain_total'], 2)} "
+        f"(95% interval {_fmt(low, 2)} to {_fmt(high, 2)}). No lateral transfer exists in the "
+        "history, so this is computed by the model, not observed."
+    )
+    if plan["batches"]:
+        lines += [
+            "",
+            "| Batch | From | To | Group | Units | Dispatch | Model gain | Net | MC gain |",
+            "|---|---|---|---|---:|---|---:|---:|---:|",
+        ]
+        for b in plan["batches"]:
+            lines.append(
+                f"| {b['batch_id']} | {b['from_facility_id']} | {b['to_facility_id']} | "
+                f"{b['blood_group']} | {b['units']} | {b['dispatch_day']} | "
+                f"{_fmt(b['model_gain'], 2)} | {_fmt(b['net_gain'], 2)} | "
+                f"{_fmt(b['monte_carlo_gain'], 2)} |"
             )
     return "\n".join(lines) + "\n"
 

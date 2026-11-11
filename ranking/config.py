@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class RankingConfig:
+    """Settings of the survival score, the transfer gain and the dispatch-day choice."""
+
     # Cost of a special trip, in expected units of blood. Not in the data: a team choice to confirm
     # with a blood-service expert.
     trip_cost_units: float = 0.2
@@ -14,6 +16,9 @@ class RankingConfig:
     min_gain_units: float = 0.10
     # Longest wait considered when looking for the best dispatch day.
     max_wait_days: int = 7
+    # A later dispatch day must beat an earlier one by more than this many units: the measured
+    # accuracy of the waiting-value approximation against Monte Carlo (plan 2.3, test < 0.03).
+    timing_tolerance_units: float = 0.03
     cooler_capacity_units: int = 10
     # Extra cells kept beyond the queue length when truncating the demand distribution.
     cap_extra: int = 6
@@ -31,8 +36,11 @@ class RankingConfig:
     calibration_min_bin: int = 100
 
     def __post_init__(self) -> None:
-        if self.trip_cost_units < 0 or self.min_gain_units < 0:
-            raise ValueError("trip_cost_units and min_gain_units must be non-negative")
+        """Refuse settings that would make the score or the timing meaningless."""
+        if self.trip_cost_units < 0 or self.min_gain_units < 0 or self.timing_tolerance_units < 0:
+            raise ValueError(
+                "trip_cost_units, min_gain_units and timing_tolerance_units must be non-negative"
+            )
         if self.max_wait_days < 0 or self.cooler_capacity_units < 1 or self.cap_extra < 1:
             raise ValueError("max_wait_days >= 0, cooler_capacity_units >= 1, cap_extra >= 1")
         lo, hi = self.lambda_quantiles

@@ -26,6 +26,7 @@ def test_config_is_frozen():
     [
         {"trip_cost_units": -0.1},
         {"min_gain_units": -1.0},
+        {"timing_tolerance_units": -0.01},
         {"max_wait_days": -1},
         {"cooler_capacity_units": 0},
         {"lambda_quantiles": (0.9, 0.1)},
