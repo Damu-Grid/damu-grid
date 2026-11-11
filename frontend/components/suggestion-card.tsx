@@ -116,6 +116,7 @@ export function SuggestionCard({
         : null;
   const canAct = !blockedReason && !outcome;
 
+  const uncertaintyLabel = s.uncertainty.label.replace(/\.+\s*$/, "");
   const from = shortName(s.from_facility_id, s.from_facility_name);
   const to = shortName(s.to_facility_id, s.to_facility_name);
   const days = daysAfterAsOf(s.expiry_date, s.as_of);
@@ -184,10 +185,11 @@ export function SuggestionCard({
         </p>
 
         <p className="text-sm text-ink-2">
-          Uncertainty: {s.uncertainty.label}
+          Uncertainty: {uncertaintyLabel}
           {s.uncertainty.nominal_level !== null &&
             ` (nominal ${Math.round(s.uncertainty.nominal_level * 100)}% bound)`}
-          . A model estimate, not a clinical probability.
+          .{!/clinical probability/i.test(uncertaintyLabel) &&
+            " A model estimate, not a clinical probability."}
         </p>
 
         {s.warnings.length > 0 && (
