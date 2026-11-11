@@ -45,6 +45,9 @@ function daysToExpiry(expiryDate: string, asOf: string): number | null {
   return Number.isFinite(ms) ? Math.floor(ms / 86_400_000) : null;
 }
 
+/** Outgoing units expiring within this many days flag a facility as expiry-risk. */
+export const EXPIRY_RISK_DAYS = 10;
+
 export function buildMapData(suggestions: Suggestion[], asOf: string): {
   nodes: FacilityNode[];
   edges: TransferEdge[];
@@ -77,7 +80,13 @@ export function buildMapData(suggestions: Suggestion[], asOf: string): {
     const out = outbound.get(f.facility_id);
     const days = out?.soonest ? daysToExpiry(out.soonest, asOf) : null;
     const risk: FacilityRisk =
-      inboundGap > 0 ? "shortage" : days !== null && days <= 7 ? "expiry" : out ? "steady" : "unknown";
+      inboundGap > 0
+        ? "shortage"
+        : days !== null && days <= EXPIRY_RISK_DAYS
+          ? "expiry"
+          : out
+            ? "steady"
+            : "unknown";
     const { x, y } = project(f.lon, f.lat);
     return {
       ...f,
@@ -101,7 +110,7 @@ export function buildMapData(suggestions: Suggestion[], asOf: string): {
 
 export const RISK_LABEL: Record<FacilityRisk, string> = {
   shortage: "Shortage (incoming gap)",
-  expiry: "Surplus near expiry (outgoing expires within 7 days)",
+  expiry: "Surplus near expiry (outgoing expires within 10 days)",
   steady: "Steady",
   unknown: "No suggestion data",
 };

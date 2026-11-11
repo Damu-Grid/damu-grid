@@ -17,6 +17,13 @@ const DOT_FILL: Record<FacilityRisk, string> = {
   unknown: "fill-muted",
 };
 
+const LEGEND_DOT: Record<FacilityRisk, string> = {
+  shortage: "bg-destructive",
+  expiry: "bg-expiry",
+  steady: "bg-brand",
+  unknown: "bg-muted",
+};
+
 export default function MapPage() {
   const {
     data: suggestions,
@@ -68,7 +75,7 @@ export default function MapPage() {
                 key={risk}
                 className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
               >
-                <span aria-hidden className={cn("inline-block h-2.5 w-2.5 rounded-full", DOT_FILL[risk])} />
+                <span aria-hidden className={cn("inline-block h-2.5 w-2.5 rounded-full", LEGEND_DOT[risk])} />
                 {RISK_LABEL[risk]}: {nodes.filter((n) => n.risk === risk).length}
               </span>
             ))}
