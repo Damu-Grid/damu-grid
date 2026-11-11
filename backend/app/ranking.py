@@ -576,12 +576,13 @@ class SQLiteSuggestionProvider:
         route: tuple[float | None, str | None],
         settings: dict[str, Any],
     ) -> Suggestion:
-        """Fill expected_use_*, survival_score_* and send_by from ranking.annotate.
+        """Fill expected_use_*, survival_score_* and the recommended send_by from ranking.annotate.
 
         Eligibility has already decided that this move may be suggested; the score never adds,
         drops or reorders suggestions. If the score cannot be computed for this batch (no demand
         model for the sender, no unit history, missing route time), or its result is not a valid
-        Suggestion, the suggestion is returned unchanged, with those fields left empty.
+        Suggestion, the suggestion is returned unchanged: the score fields stay empty and send_by
+        stays the provider's latest safe dispatch date (DG-17), never a guessed day.
         """
         inputs = self._ranking_inputs(context)
         if inputs is None or route[0] is None:
@@ -593,10 +594,20 @@ class SQLiteSuggestionProvider:
             update = note.as_suggestion_update(suggestion.warnings)
             if not all(math.isfinite(update[key]) for key in ANNOTATED_NUMBERS):
                 return suggestion
+            # The provider's send_by is the latest safe dispatch date (DG-17, eligibility rule).
+            # The recommended day never passes it; with no recommended day (the gain does not
+            # cover a trip), the deadline is kept.
+            deadline = suggestion.send_by
+            reason = update["reason_deterministic"]
+            if update["send_by"] is None:
+                update["send_by"] = deadline
+            elif deadline is not None and update["send_by"] > deadline:
+                update["send_by"] = deadline
+                reason += (
+                    f" Dispatch is brought forward to {deadline.isoformat()}, the latest safe day."
+                )
             update["uncertainty"] = Uncertainty(**update["uncertainty"])
-            update["reason_deterministic"] = (
-                f"{suggestion.reason_deterministic} {update['reason_deterministic']}"
-            )
+            update["reason_deterministic"] = f"{suggestion.reason_deterministic} {reason}"
             return Suggestion.model_validate({**suggestion.model_dump(), **update})
         except Exception as exc:  # any failure means "no score", never a crash
             LOGGER.info("survival fields rejected for %s: %s", suggestion.suggestion_id, exc)

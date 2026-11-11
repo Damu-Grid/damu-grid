@@ -10,8 +10,8 @@ suggestion still needs Accept / Change / Reject by the coordinator.
 
 `ranking/` is an **annotation layer**, not a second suggestion provider. The backend provider
 (`backend/app/ranking.py`) builds the suggestions from the pipeline eligibility; its
-`_build_suggestion` now calls `ranking.annotate.annotate_batch` to fill `expected_use_*`,
-`survival_score_*` and `send_by` (see "Connected to the backend" below). Nothing in `ranking/`
+`_build_suggestion` now calls `ranking.annotate.annotate_batch` to fill `expected_use_*` and
+`survival_score_*`, and to recommend a `send_by` day (see "Connected to the backend" below). Nothing in `ranking/`
 imports the backend.
 
 | Module | Content |
@@ -80,7 +80,7 @@ vehicle runs on the route (`facilities.routine_deliveries_per_week`: 3 = Mon/Wed
 2 = Tue/Fri, 1 = Wed). Routine vehicles only go from a blood centre to the hospitals it supplies,
 so a hospital-to-hospital move is a special trip. The earliest day within
 `timing_tolerance_units` (0.03, the approximation's tested accuracy) of the best net gain is
-chosen. Below `min_gain_units` (0.10) no send-by day is proposed. `send_by` never passes the
+chosen. Below `min_gain_units` (0.10) no dispatch day is recommended. The day never passes the
 latest feasible day of `simulation/compare.py` (expiry - travel days - 1).
 
 **Batches.** Starting from the moves the pipeline eligibility allowed, the greedy accepts the best
@@ -205,7 +205,10 @@ the history), and the total is a sum of per-batch checks, not one joint simulati
 `SQLiteSuggestionProvider._build_suggestion` builds the provider's suggestion, then `_annotate`
 copies the annotation of its batch:
 
-- `expected_use_*`, `survival_score_*` and `send_by` come from `annotate_batch`;
+- `expected_use_*` and `survival_score_*` come from `annotate_batch`. The provider's `send_by`
+  is the latest safe dispatch date (DG-17); the recommended day replaces it but never passes it,
+  and when the gain does not cover a special trip the safe date is kept with the warning
+  `net_gain_below_minimum`;
   `uncertainty` becomes `fefo_compound_poisson` (nominal level 0.8, the 10th to 90th demand-rate
   percentiles), the provider's reason is kept and ours is appended, and our warning
   (`timing_uses_special_trip`, `routine_run_available` or `net_gain_below_minimum`) is added after
@@ -214,8 +217,9 @@ copies the annotation of its batch:
   `tests/test_ranking.py` checks that the list is identical with and without the score.
 - **Nothing is guessed.** If the score cannot be computed for a batch (a blood-centre sender, a
   database without unit history or routine calendar, a missing route time), or the result does not
-  validate the `Suggestion` schema, the five fields stay `null` and the provider's uncertainty and
-  reason are kept. Tests cover both cases.
+  validate the `Suggestion` schema, the four score fields stay `null`, `send_by` stays the
+  provider's latest safe dispatch date, and the provider's uncertainty and reason are kept. Tests
+  cover both cases.
 - The shelves and demand model are loaded once per database file and as-of time and shared by
   later requests (the snapshot does not change between requests; eligibility is rechecked every
   time). Rebuilding the database reloads them.

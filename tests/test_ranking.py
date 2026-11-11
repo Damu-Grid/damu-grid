@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -283,7 +283,6 @@ SURVIVAL_FIELDS = (
     "expected_use_if_moved",
     "survival_score_if_stays",
     "survival_score_if_moved",
-    "send_by",
 )
 
 
@@ -376,6 +375,9 @@ def test_survival_fields_stay_empty_when_no_score_can_be_computed(tmp_path):
     assert {s.unit_ids[0] for s in suggestions} == {"U0", "U1"}  # eligibility decided
     for suggestion in suggestions:
         assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
+        # send_by stays the provider's latest safe dispatch date (DG-17), not a guessed day:
+        # 2026-12-01 00:00 minus (2 h travel + 6 h allowance + 10 days)
+        assert suggestion.send_by == date(2026, 11, 20)
         assert suggestion.uncertainty.method == "trailing_28_day_request_average"
         assert "fefo" not in suggestion.reason_deterministic
 
@@ -395,6 +397,7 @@ def test_survival_fields_are_filled_when_a_score_can_be_computed(tmp_path, monke
 
     # the score never adds, drops or reorders what eligibility allowed
     assert _moves(scored) == _moves(plain) and scored
+    deadlines = {s.suggestion_id: s.send_by for s in plain}
     assert "A-exposed" not in {unit for s in scored for unit in s.unit_ids}
     hospital = [s for s in scored if s.from_facility_id == "HSP-A"]
     centre = [s for s in scored if s.from_facility_id == "RBTC-X"]
@@ -410,14 +413,16 @@ def test_survival_fields_are_filled_when_a_score_can_be_computed(tmp_path, monke
         assert suggestion.uncertainty.nominal_level == 0.8
         assert suggestion.reason_deterministic.startswith("1 eligible RBC unit(s)")
         assert suggestion.warnings[0].startswith("Synthetic request history")
-        if suggestion.send_by is None:
-            assert "net_gain_below_minimum" in suggestion.warnings
-        else:  # never later than expiry - one travel day - one buffer day
-            assert AS_OF.date() < suggestion.send_by
-            assert suggestion.send_by <= suggestion.expiry_date - timedelta(days=2)
+        deadline = deadlines[suggestion.suggestion_id]  # DG-17 latest safe dispatch date
+        assert AS_OF.date() < suggestion.send_by <= deadline  # never after the safe deadline
+        if "net_gain_below_minimum" in suggestion.warnings:
+            assert suggestion.send_by == deadline  # no recommended day: the deadline is kept
         Suggestion.model_validate(suggestion.model_dump())
+    assert any("timing_uses_special_trip" in s.warnings for s in hospital)
     for suggestion in centre:  # no demand model for a blood centre: nothing is guessed
         assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
+        assert suggestion.send_by == deadlines[suggestion.suggestion_id]
+        assert suggestion.uncertainty.method == "trailing_28_day_request_average"
     for suggestion in plain:
         assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
     clear_ranking_cache()
