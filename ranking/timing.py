@@ -75,7 +75,13 @@ def decide_dispatch(
         g - (0.0 if r else config.trip_cost_units)
         for g, r in zip(gain_by_day, routine, strict=True)
     ]
-    best = next(t for t in range(len(net)) if net[t] >= max(net) - config.timing_tolerance_units)
+    # Only days that clear the minimum compete; among them, the earliest within the tolerance
+    # of the best. With none, the best day is reported as below the minimum.
+    viable = [t for t in range(len(net)) if net[t] >= config.min_gain_units] or list(
+        range(len(net))
+    )
+    top = max(net[t] for t in viable)
+    best = next(t for t in viable if net[t] >= top - config.timing_tolerance_units)
     waiting_cost = gain_by_day[0] - gain_by_day[1] if len(gain_by_day) > 1 else 0.0
     decision_day = days[best]
     if net[best] < config.min_gain_units:

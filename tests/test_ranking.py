@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
@@ -284,7 +284,6 @@ SURVIVAL_FIELDS = (
     "expected_use_if_moved",
     "survival_score_if_stays",
     "survival_score_if_moved",
-    "send_by",
 )
 
 
@@ -377,6 +376,9 @@ def test_survival_fields_stay_empty_when_no_score_can_be_computed(tmp_path):
     assert {s.unit_ids[0] for s in suggestions} == {"U0", "U1"}  # eligibility decided
     for suggestion in suggestions:
         assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
+        # send_by keeps the DG-17 latest safe dispatch date (eligibility rule, not the model):
+        # 2026-12-01 00:00 minus (2 h travel + 6 h allowance + 10 days)
+        assert suggestion.send_by == date(2026, 11, 20)
         assert suggestion.uncertainty.method == "trailing_28_day_request_average"
         assert "fefo" not in suggestion.reason_deterministic
 
@@ -424,6 +426,7 @@ def test_survival_fields_are_filled_when_a_score_can_be_computed(tmp_path, monke
     assert any("timing_uses_special_trip" in s.warnings for s in hospital)
     for suggestion in centre:  # no demand model for a blood centre: nothing is guessed
         assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)
+        assert suggestion.send_by == deadlines[suggestion.suggestion_id]  # DG-17 date kept
         assert suggestion.uncertainty.method == "trailing_28_day_request_average"
     for suggestion in plain:
         assert all(getattr(suggestion, field) is None for field in SURVIVAL_FIELDS)

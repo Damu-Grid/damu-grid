@@ -79,6 +79,8 @@ class AnnotationInputs:
     demand: DemandModel
     facilities: pd.DataFrame
     _scores: dict = field(default_factory=dict, compare=False, repr=False)
+    # Batch annotations computed from these inputs, kept with them (the backend's cache).
+    notes: dict = field(default_factory=dict, compare=False, repr=False)
 
     def scores(self, config: RankingConfig) -> pd.DataFrame:
         """survival_scores of the whole stock for `config`, computed once and reused."""

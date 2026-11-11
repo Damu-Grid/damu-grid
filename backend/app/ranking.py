@@ -527,7 +527,7 @@ class SQLiteSuggestionProvider:
                     LOGGER.warning("survival score unavailable: %s", exc)
                     inputs = None
                 _RANKING_STATE.clear()
-                _RANKING_STATE.update(key=key, inputs=inputs, notes={})
+                _RANKING_STATE.update(key=key, inputs=inputs)
             return _RANKING_STATE["inputs"]
 
     def _batch_note(
@@ -543,7 +543,7 @@ class SQLiteSuggestionProvider:
         allowance = context["config"].arrival_allowance_hours
         min_days = settings["remaining_life_min_days"]["RBC"]
         key = (tuple(u["unit_id"] for u in units), destination, travel_hours, allowance, min_days)
-        notes = _RANKING_STATE.get("notes", {})
+        notes = inputs.notes  # bound to the inputs that produced them, never to a newer snapshot
         if key in notes:
             return notes[key]
         source, group = units[0]["facility_id"], units[0]["blood_group"]
@@ -581,10 +581,11 @@ class SQLiteSuggestionProvider:
         Eligibility has already decided that this move may be suggested; the score never adds,
         drops or reorders suggestions. If the score cannot be computed for this batch (no demand
         model for the sender, no unit history, missing route time), or its result is not a valid
-        Suggestion, expected_use_*, survival_score_* and send_by are all left empty instead of
-        guessed; everything else on the card is the provider's.
+        Suggestion, expected_use_* and survival_score_* stay empty instead of guessed and the card
+        is the provider's, including its send_by: the latest safe dispatch date of the eligibility
+        rule (DG-17), which is not a model estimate.
         """
-        unscored = suggestion.model_copy(update={"send_by": None})
+        unscored = suggestion
         inputs = self._ranking_inputs(context)
         if inputs is None or route[0] is None:
             return unscored

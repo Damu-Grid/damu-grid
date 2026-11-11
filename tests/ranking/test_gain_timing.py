@@ -152,6 +152,13 @@ def test_a_later_day_must_beat_today_by_more_than_the_tolerance():
     assert "0.70" in real.reason and "0.60" in real.reason
 
 
+def test_a_later_day_that_clears_the_minimum_is_not_discarded_by_the_tolerance():
+    # net = (0.08, 0.11): day 0 is within the tolerance of day 1 but below the 0.10 minimum
+    decision = decide_dispatch((0.28, 0.31), frozenset(), RankingConfig(), origin=MONDAY)
+    assert decision.send_by == MONDAY + timedelta(days=1)
+    assert decision.net_gain == pytest.approx(0.11)
+
+
 def test_a_very_short_life_unit_leaves_today():
     cfg = RankingConfig()
     tau_max = max_wait_days([8], 1, 7, cfg)
