@@ -31,6 +31,8 @@ export const SuggestionSchema = z.object({
   from_facility_name: z.string().nullish(),
   to_facility_name: z.string().nullish(),
   expiry_date: z.string(),
+  // Latest safe dispatch date (DG-17); null when travel time is unknown.
+  send_by: z.string().nullish(),
   typical_travel_hours: z.number().nullable(),
   sender_reserve_units: z.number().nullable(),
   sender_stock_after: z.number().nullable(),
