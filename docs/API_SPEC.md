@@ -63,6 +63,8 @@ Four demo roles: `coordinator`, `sender`, `receiver`, `safety`. Test logins will
 
 Action bodies include `actor_id`, `role`, `reason`, and a `unit_version` or reservation token. Server time is taken from the server, not the client.
 
+The default local suggestion provider reads the pipeline-built `dg_snapshot_units` and `dg_cold_chain_flags` tables and reuses `pipeline.eligibility.unit_eligibility` and `check_move`. It estimates a seven-day recipient gap from known-group RBC requests in the preceding 28 days. A missing or mismatched pipeline snapshot returns `503`; it does not fall back to final-location `units` rows or fixture cards. Suggestions remain synthetic coordinator-review candidates, not transfusion decisions.
+
 Error model: `409` for stale version or conflicting reservation; `403` for wrong role; `422` for eligibility failure; `503` when the estimator is down and the client should switch to `/suggestions?policy=fallback` (the API may also auto-offer fallback suggestions with `fallback: true`).
 
 ## Endpoints (Tier 2)
