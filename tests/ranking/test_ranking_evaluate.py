@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from forecasting.config import calibration_origins as forecasting_calibration_origins
 from ranking.config import RankingConfig
 from ranking.demand import DemandModel
 from ranking.evaluate import (
@@ -107,12 +108,11 @@ def test_rank_rule_matches_the_queue_bound_and_skips_unqueued_rows():
     assert scored[["p_lo", "p_hi"]].isna().all().all()  # intervals skipped on request
 
 
-def test_calibration_origins_are_weekly_in_may_and_june():
+def test_calibration_origins_are_the_teams():
     origins = calibration_origins()
-    assert origins[0] == date(2026, 5, 1) and origins[-1] == date(2026, 6, 26)
-    assert len(origins) == 9 and all(
-        (b - a).days == 7 for a, b in zip(origins, origins[1:], strict=False)
-    )
+    assert origins == forecasting_calibration_origins()  # one split for the whole project
+    assert origins[0] == date(2026, 5, 6) and origins[-1] == date(2026, 6, 24)
+    assert len(origins) == 8
 
 
 @pytest.fixture(scope="module")
@@ -127,9 +127,9 @@ def red_cell_run(tmp_path_factory):
 def test_health_check_reproduces_the_design_figures_for_red_cells(red_cell_run):
     payload, out = red_cell_run
     total = payload["methods"]["total"]
-    assert total["n"] == 8865 and total["calibration_n"] == 5296
+    assert total["n"] == 8865 and total["calibration_n"] == 4710  # the team's 8 May-June origins
     assert total["observed_rate"] == pytest.approx(0.931, abs=0.0005)
-    assert total["calibration_observed_rate"] == pytest.approx(0.976, abs=0.0005)
+    assert total["calibration_observed_rate"] == pytest.approx(0.977, abs=0.0005)
     exact = total["methods"]["exact"]
     assert exact["brier"] == pytest.approx(0.0371, abs=0.003)
     assert exact["auc"] == pytest.approx(0.966, abs=0.005)

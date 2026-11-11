@@ -100,8 +100,8 @@ uv run pytest tests/ranking tests/test_ranking.py
 
 The command writes `data/processed/ranking_evaluation.json` and `.md`. It reads only the
 official CSVs and is deterministic (the Monte Carlo check uses the fixed `RankingConfig.seed`).
-The split is the team's: calibration origins weekly from 1 May to 26 June 2026 (9), test origins
-weekly from 1 July to 21 October 2026 (17). Units are scored only when their outcome is final
+The split is the team's (`docs/EVALUATION.md`, `forecasting.config`): calibration origins weekly
+from 6 May to 24 June 2026 (8), test origins weekly from 1 July to 21 October 2026 (17). Units are scored only when their outcome is final
 (expiry on or before 31 October 2026), so each row is a (unit, origin) pair. Shelves are rebuilt
 from each unit's own arrival day. The command reports 631 hospital units with no recorded
 arrival; the latest of them expires on 11 December 2025, before the first origin, so the
@@ -111,12 +111,13 @@ historical queues are complete for the evaluated windows.
 
 ### Design check: red cells only, flat weekdays (`--pool-components RBC --flat-weekdays`)
 
-This reproduces the design measurements exactly: 8,865 test and 5,296 calibration pairs,
-observed use rate 0.931 (test) and 0.976 (calibration).
+On the test window this reproduces the design measurements exactly: 8,865 test pairs, observed
+use rate 0.931. The calibration window now uses the team's 8 origins (the design run used 9, from
+1 May to 26 June): 4,710 pairs, observed use rate 0.977. Only the constant baseline depends on it.
 
 | Method (test window) | Brier | Log-loss | Calibration gap | AUC |
 |---|---:|---:|---:|---:|
-| Constant base rate | 0.0659 | 0.278 | 0.044 | 0.500 |
+| Constant base rate | 0.0661 | 0.281 | 0.046 | 0.500 |
 | Days left only | 0.0754 | 0.299 | 0.179 | 0.916 |
 | Rank rule, compound Poisson | 0.0413 | 0.133 | 0.035 | 0.963 |
 | **Exact oldest-first queue** | **0.0371** | **0.118** | **0.023** | **0.966** |
@@ -142,19 +143,52 @@ hospitals transfused more whole blood than red cells over the year; the others u
 first and let whole blood expire. A pooled oldest-first queue cannot describe that; per-product
 shares learned before the origin can.
 
-Reliability of the exact score, test window (default run):
+### Reliability table (test window, default run)
 
-- **Red cells:** every band is used more often than announced, so the score is conservative.
-  The 0.3-0.4 band has the largest gap: 0.351 announced, 0.589 observed. The 0.9-1.0 band, which
-  holds 6,897 of the 8,865 pairs, is close: 0.990 announced, 0.998 observed.
-- **Whole blood:** low scores are slightly conservative (0.043 announced, 0.108 observed below
-  0.1). Middle bands are optimistic (0.547 announced, 0.375 observed in 0.5-0.6). The 0.9-1.0
-  band is close: 0.983 announced, 0.961 observed.
+Each test pair is put in the decile of its announced score, and the observed share of units used
+is compared with it (gap = announced - observed). It is computed on the team's test origins, with
+demand learned only before each origin.
+
+**Red cells**: every band is used more often than announced, so the score is conservative; the
+0.9-1.0 band, which holds 6,897 of the 8,865 pairs, is close.
+
+| Announced range | Pairs | Announced mean | Observed | Gap |
+|---|---:|---:|---:|---:|
+| 0.000 to 0.099 | 155 | 0.039 | 0.123 | -0.084 |
+| 0.100 to 0.200 | 109 | 0.150 | 0.294 | -0.144 |
+| 0.201 to 0.299 | 127 | 0.255 | 0.457 | -0.201 |
+| 0.301 to 0.400 | 158 | 0.351 | 0.589 | -0.238 |
+| 0.401 to 0.500 | 170 | 0.448 | 0.665 | -0.217 |
+| 0.500 to 0.600 | 215 | 0.549 | 0.702 | -0.153 |
+| 0.601 to 0.700 | 226 | 0.653 | 0.765 | -0.113 |
+| 0.700 to 0.800 | 281 | 0.753 | 0.851 | -0.097 |
+| 0.800 to 0.900 | 527 | 0.855 | 0.939 | -0.084 |
+| 0.900 to 1.000 | 6,897 | 0.990 | 0.998 | -0.008 |
+
+**Whole blood**: low scores are slightly conservative, middle bands optimistic, the 0.9-1.0 band
+close.
+
+| Announced range | Pairs | Announced mean | Observed | Gap |
+|---|---:|---:|---:|---:|
+| 0.000 to 0.100 | 1,625 | 0.043 | 0.108 | -0.065 |
+| 0.100 to 0.200 | 971 | 0.146 | 0.181 | -0.036 |
+| 0.200 to 0.300 | 659 | 0.246 | 0.219 | +0.027 |
+| 0.300 to 0.400 | 481 | 0.349 | 0.260 | +0.089 |
+| 0.400 to 0.500 | 371 | 0.450 | 0.329 | +0.121 |
+| 0.500 to 0.599 | 259 | 0.547 | 0.375 | +0.173 |
+| 0.601 to 0.700 | 239 | 0.648 | 0.435 | +0.213 |
+| 0.700 to 0.800 | 219 | 0.750 | 0.584 | +0.166 |
+| 0.800 to 0.900 | 204 | 0.855 | 0.701 | +0.154 |
+| 0.900 to 1.000 | 1,042 | 0.983 | 0.961 | +0.022 |
+
+What it supports: the score ranks units well (AUC above) and a score above 0.9 is confirmed in
+practice. What it does not support: reading every announced value as a calibrated probability.
+
 - **Rh-negative units are under-scored** (all products: 0.344 announced, 0.684 observed):
   exact-group demand ignores the other patients these units can serve.
 
 An isotonic recalibration fitted on May-June is in the table of the command, but it is **not
-applied**: the base rate moves between the windows (0.976 in calibration, 0.931 in test, red
+applied**: the base rate moves between the windows (0.977 in calibration, 0.931 in test, red
 cells).
 
 Closing stock (default run, scored from 1 November 2026):
@@ -217,8 +251,9 @@ copies the annotation of its batch:
   `tests/test_ranking.py` checks that the list is identical with and without the score.
 - **Nothing is guessed.** If the score cannot be computed for a batch (a blood-centre sender, a
   database without unit history or routine calendar, a missing route time), or the result does not
-  validate the `Suggestion` schema, `expected_use_*`, `survival_score_*` and `send_by` all stay
-  `null`, and the provider's uncertainty and reason are kept. Tests cover both cases.
+  validate the `Suggestion` schema, `expected_use_*` and `survival_score_*` stay `null`;
+  `send_by` keeps the DG-17 latest safe dispatch date (an eligibility rule, not a model
+  estimate), and the provider's uncertainty and reason are kept. Tests cover both cases.
 - The shelves and demand model are loaded once per database file and as-of time and shared by
   later requests (the snapshot does not change between requests; eligibility is rechecked every
   time). Rebuilding the database reloads them.

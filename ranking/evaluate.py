@@ -22,7 +22,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from forecasting.config import CONFIG, HOSPITAL_FACILITY_TYPES, PROCESSED_DIR, evaluation_origins
+from forecasting.config import (
+    HOSPITAL_FACILITY_TYPES,
+    PROCESSED_DIR,
+    evaluation_origins,
+)
+from forecasting.config import calibration_origins as forecasting_calibration_origins
 from pipeline.coldchain import unit_flags
 from pipeline.config import PipelineConfig, load_config
 from pipeline.eligibility import NetworkIndex, check_move, unit_eligibility
@@ -61,10 +66,9 @@ METHODS = {
 
 
 def calibration_origins() -> list[date]:
-    """Weekly origins of the calibration window: 1 May to 26 June 2026."""
-    first = CONFIG.calibration_start
-    count = (date(2026, 6, 26) - first).days // 7 + 1
-    return [first + timedelta(days=7 * k) for k in range(count)]
+    """The team's calibration origins (forecasting.config.calibration_origins): weekly May-June
+    origins whose seven-day window ends by 30 June, on the weekday of the test origins."""
+    return forecasting_calibration_origins()
 
 
 def arrived_units(
