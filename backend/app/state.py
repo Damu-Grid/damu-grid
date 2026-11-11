@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
@@ -19,9 +20,10 @@ class ActionError(Exception):
         super().__init__(message)
 
 
-EligibilityCheck = Callable[[Suggestion], bool]
-ChangeSuggestion = Callable[[Suggestion, list[str], str], Suggestion]
+EligibilityCheck = Callable[[Suggestion, sqlite3.Connection], bool]
+ChangeSuggestion = Callable[[Suggestion, list[str], str, sqlite3.Connection], Suggestion]
 EAT = timezone(timedelta(hours=3))
+logger = logging.getLogger(__name__)
 
 
 class ActionStore:
@@ -287,12 +289,18 @@ class ActionStore:
                 409, "stale_version", "The unit version is stale; reload the suggestion."
             )
 
-    def _check_eligibility(self, suggestion: Suggestion, checker: EligibilityCheck | None) -> None:
+    def _check_eligibility(
+        self,
+        suggestion: Suggestion,
+        checker: EligibilityCheck | None,
+        connection: sqlite3.Connection,
+    ) -> None:
         if checker is None:
             raise ActionError(503, "eligibility_not_ready", "Eligibility recheck is not connected.")
         try:
-            eligible = checker(suggestion)
+            eligible = checker(suggestion, connection)
         except Exception as exc:
+            logger.exception("Eligibility recheck failed.")
             raise ActionError(
                 503, "eligibility_unavailable", "Eligibility recheck is unavailable."
             ) from exc
@@ -349,7 +357,7 @@ class ActionStore:
                     "Cancel the reserved move before rejecting this suggestion.",
                 )
             if decision == "accept":
-                self._check_eligibility(suggestion, checker)
+                self._check_eligibility(suggestion, checker, connection)
                 for unit_id in suggestion.unit_ids:
                     unit = connection.execute(
                         "SELECT * FROM unit_state WHERE unit_id = ?", (unit_id,)
@@ -441,7 +449,9 @@ class ActionStore:
                 raise ActionError(
                     503, "eligibility_not_ready", "Change eligibility is not connected."
                 )
-            revised = change_suggestion(original, body["unit_ids"], body["to_facility_id"])
+            revised = change_suggestion(
+                original, body["unit_ids"], body["to_facility_id"], connection
+            )
             if not revised.unit_ids or len(set(revised.unit_ids)) != len(revised.unit_ids):
                 raise ActionError(
                     422, "invalid_change", "Changed unit IDs must be nonempty and unique."
@@ -457,7 +467,7 @@ class ActionStore:
                     "A change must return a distinct suggestion with the requested units "
                     "and destination.",
                 )
-            self._check_eligibility(revised, checker)
+            self._check_eligibility(revised, checker, connection)
             active_moves = connection.execute(
                 "SELECT move_id, unit_ids_json FROM moves "
                 "WHERE suggestion_id = ? AND status = 'reserved'",
@@ -571,7 +581,7 @@ class ActionStore:
                         409, "reservation_expired", "The reservation lease has expired."
                     )
                 suggestion = self.get_suggestion(connection, move["suggestion_id"])
-                self._check_eligibility(suggestion, checker)
+                self._check_eligibility(suggestion, checker, connection)
                 for unit_id in units:
                     state = connection.execute(
                         "SELECT quarantined, inventory_status FROM unit_state WHERE unit_id = ?",
@@ -717,17 +727,68 @@ class ActionStore:
                 for row in rows
             ]
 
-    def get_settings(self) -> dict:
-        with closing(self._connect()) as connection:
+    def get_settings(self, connection: sqlite3.Connection | None = None) -> dict:
+        if connection is not None:
             row = connection.execute(
                 "SELECT payload_json FROM app_settings WHERE singleton = 1"
             ).fetchone()
-            if row:
-                return json.loads(row[0])
-            return {
-                **self.DEFAULT_SETTINGS,
-                "reservation_lease_minutes": self.lease_minutes,
-            }
+        else:
+            with closing(self._connect()) as connection:
+                row = connection.execute(
+                    "SELECT payload_json FROM app_settings WHERE singleton = 1"
+                ).fetchone()
+        if row:
+            return json.loads(row[0])
+        return {
+            **self.DEFAULT_SETTINGS,
+            "reservation_lease_minutes": self.lease_minutes,
+        }
+
+    def unavailable_unit_ids(
+        self, connection: sqlite3.Connection | None = None
+    ) -> set[str]:
+        if connection is not None:
+            unit_rows = connection.execute(
+                "SELECT unit_id FROM unit_state "
+                "WHERE eligible = 0 OR quarantined = 1 OR inventory_status != 'in_stock'"
+            ).fetchall()
+            reservation_rows = connection.execute("SELECT unit_id FROM reservations").fetchall()
+            return {row["unit_id"] for row in (*unit_rows, *reservation_rows)}
+        with self.transaction() as connection:
+            self._expire_reservations(connection)
+            return self.unavailable_unit_ids(connection)
+
+    def pending_inbound_units(
+        self,
+        excluding_suggestion_id: str | None = None,
+        connection: sqlite3.Connection | None = None,
+    ) -> dict[tuple[str, str], int]:
+        if connection is not None:
+            return self._pending_inbound_units(excluding_suggestion_id, connection)
+        with closing(self._connect()) as connection:
+            return self._pending_inbound_units(excluding_suggestion_id, connection)
+
+    @staticmethod
+    def _pending_inbound_units(
+        excluding_suggestion_id: str | None, connection: sqlite3.Connection
+    ) -> dict[tuple[str, str], int]:
+        query = (
+            "SELECT m.suggestion_id, m.to_facility_id, s.body_json FROM moves m "
+            "JOIN suggestions s ON s.suggestion_id = m.suggestion_id "
+            "WHERE (m.status IN ('reserved', 'in_transit') OR "
+            "(m.status = 'quarantined' AND m.dispatched_at IS NOT NULL))"
+        )
+        parameters: tuple[str, ...] = ()
+        if excluding_suggestion_id is not None:
+            query += " AND m.suggestion_id != ?"
+            parameters = (excluding_suggestion_id,)
+        rows = connection.execute(query, parameters).fetchall()
+        counts: dict[tuple[str, str], int] = {}
+        for row in rows:
+            suggestion = json.loads(row["body_json"])
+            key = (row["to_facility_id"], suggestion["blood_group"])
+            counts[key] = counts.get(key, 0) + len(suggestion["unit_ids"])
+        return counts
 
     def update_settings(self, body: dict) -> dict:
         with self.transaction() as connection:
