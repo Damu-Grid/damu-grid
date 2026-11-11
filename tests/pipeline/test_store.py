@@ -130,6 +130,15 @@ def test_old_schema_version_is_refused():
         create_schema(c)
 
 
+def test_legacy_table_without_pk_is_refused():
+    """Pre-versioning table without its primary key is refused, not FK-mismatched."""
+    c = sqlite3.connect(":memory:")
+    c.execute("CREATE TABLE facilities (facility_id TEXT, name TEXT)")
+    c.execute("PRAGMA user_version = 0")
+    with pytest.raises(SchemaVersionError, match="legacy tables"):
+        create_schema(c)
+
+
 def test_audit_trail_is_append_only(conn):
     """Audit trail is append only."""
     conn.execute(
