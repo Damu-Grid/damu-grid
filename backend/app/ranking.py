@@ -448,7 +448,15 @@ class SQLiteSuggestionProvider:
             from_facility_name=facility_names.get(source),
             to_facility_name=facility_names.get(destination),
             expiry_date=min(unit["expiry_date"] for unit in units).date(),
-            send_by=None,
+            send_by=_send_by_date(
+                min(unit["expiry_date"] for unit in units),
+                route[0],
+                context["config"].arrival_allowance_hours,
+                settings.get("remaining_life_min_days", {}).get(
+                    first["component"],
+                    settings.get("remaining_life_min_days", {}).get("RBC", 0),
+                ),
+            ),
             typical_travel_hours=route[0],
             sender_reserve_units=settings["sender_reserve_units"],
             sender_stock_after=sender_stock_after,
@@ -472,6 +480,30 @@ class SQLiteSuggestionProvider:
                 "unrecorded demand is not measured."
             ],
         )
+
+
+def _send_by_date(
+    expiry: Any,
+    travel_hours: float | None,
+    allowance_hours: float,
+    buffer_days: float,
+) -> Any:
+    """Latest safe dispatch date (DG-17).
+
+    Mirrors the eligibility rule in ``pipeline.eligibility``: a unit is
+    treated as expiring at 00:00 on ``expiry_date``, and arrival must keep the
+    remaining-life buffer. Returns the calendar date containing the latest
+    safe dispatch instant, so dispatch early on that date. ``None`` when the
+    travel time is unknown. Never clinical advice.
+    """
+    if travel_hours is None or travel_hours != travel_hours:  # None or NaN
+        return None
+    instant = (
+        pd.Timestamp(expiry).normalize()
+        - pd.Timedelta(hours=float(travel_hours) + float(allowance_hours))
+        - pd.Timedelta(days=float(buffer_days))
+    )
+    return instant.date()
 
 
 def _suggestion_id(as_of: datetime, unit_id: str) -> str:
